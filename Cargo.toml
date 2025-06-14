@@ -1,0 +1,45 @@
+[package]
+name = "rocket_flex_session"
+version = "0.1.0"
+description = "Flexible sessions for Rocket applications"
+edition = "2021"
+authors = ["fa-sharp"]
+categories = [
+    "authentication",
+    "web-programming",
+    "web-programming::http-server",
+]
+
+[lib]
+
+[features]
+cookie = ["dep:serde_json"]
+redis_fred = ["dep:fred"]
+rocket_okapi = ["dep:rocket_okapi"]
+sqlx_postgres = ["dep:sqlx"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[dependencies]
+fred = { version = ">=10.0.4", optional = true, default-features = false, features = [
+    "i-keys",
+    "i-hashes",
+] }
+rand = "0.8.5"
+retainer = "0.3.0"
+rocket = { version = "~0.5.1", features = ["secrets"] }
+rocket_okapi = { version = "~0.9.0", optional = true }
+serde = { version = "1.0.217" }
+serde_json = { version = "1.0.137", optional = true }
+sqlx = { version = "0.8.3", optional = true, default-features = false, features = [
+    "runtime-tokio",
+    "postgres",
+    "time",
+] }
+thiserror = ">=2.0.11"
+time = { version = ">=0.3.37", features = ["serde"] }
+
+[dev-dependencies]
+test-case = "3.3.1"
