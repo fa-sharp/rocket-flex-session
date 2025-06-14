@@ -1,6 +1,6 @@
 [package]
 name = "rocket_flex_session"
-version = "0.1.0"
+version = "0.1.1"
 description = "Flexible sessions for Rocket applications"
 edition = "2021"
 authors = ["fa-sharp"]

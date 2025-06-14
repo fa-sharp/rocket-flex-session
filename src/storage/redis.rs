@@ -121,7 +121,7 @@ where
         let value: Value = data
             .try_into()
             .map_err(|e| SessionError::Serialization(Box::new(e)))?;
-        let _: String = match self.redis_type {
+        let _: () = match self.redis_type {
             RedisType::String => {
                 self.pool
                     .set(&key, value, Some(Expiration::EX(ttl.into())), None, false)
