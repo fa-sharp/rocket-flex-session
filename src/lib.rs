@@ -30,35 +30,36 @@ use rocket_flex_session::{Session, RocketFlexSession};
 
 // Create a session data type (this type must be thread-safe and Clone)
 #[derive(Clone)]
-struct User {
-    user_id: String
+struct MySession {
+    user_id: String,
+    // ..other session fields
 }
 
 #[rocket::launch]
 fn rocket() -> _ {
     rocket::build()
         // attach the `RocketFlexSession` fairing, passing in your session data type
-        .attach(RocketFlexSession::<User>::default())
+        .attach(RocketFlexSession::<MySession>::default())
         .mount("/", routes![login])
 }
 
 // use the `Session` request guard in a route handler
 #[rocket::post("/login")]
-fn login(mut session: Session<User>) {
-    session.set(User { user_id: "123".to_owned() });
+fn login(mut session: Session<MySession>) {
+    session.set(MySession { user_id: "123".to_owned() });
 }
 
 ```
 
 ## Request guard auth
 
-If a valid session isn't found, the [Session] request guard will still succeed, but calling [Session.get()](Session#method.get) will
-return `None` - indicating an empty/uninitialized session. This primitive is designed for you to be able to
-add your authentication and authorization layer on top of it using Rocket's flexible
-request guard system.
+If a valid session isn't found, the [Session] request guard will still succeed, but calling [Session.get()](Session#method.get)
+or [Session.tap()](Session#method.tap) will yield `None` - indicating an empty/uninitialized session.
+This primitive is designed for you to be able to add your authentication and authorization layer on
+top of it using Rocket's flexible request guard system.
 
-For example, we can write a request guard for our `User` type, that will retrieve the
-session and verify whether the `User` session data is actually present:
+For example, we can write a request guard for our `MySession` type, that will attempt to retrieve the
+session data and verify whether there is an active session:
 ```
 use rocket::{
     http::Status,
@@ -68,30 +69,31 @@ use rocket::{
 use rocket_flex_session::Session;
 
 #[derive(Clone)]
-struct User {
-    user_id: String
+struct MySession {
+    user_id: String,
+    // ..other session fields
 }
 
 #[rocket::async_trait]
-impl<'r> FromRequest<'r> for User {
+impl<'r> FromRequest<'r> for MySession {
    type Error = &'r str; // or your custom error type
 
    async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
        // Run the Session request guard (this guard should always succeed)
-       let session = req.guard::<Session<User>>().await.expect("should not fail");
+       let session = req.guard::<Session<MySession>>().await.expect("should not fail");
 
-       // Get the `User` session data, or if it's `None`, send an Unauthorized error
+       // Get the `MySession` session data, or if it's `None`, send an Unauthorized error
        match session.get() {
-           Some(user) => Outcome::Success(user),
+           Some(my_session) => Outcome::Success(my_session),
            None => Outcome::Error((Status::Unauthorized, "Not logged in")),
        }
     }
  }
 
- // Use our new `User` request guard in a route handler
+ // Use our new `MySession` request guard in a route handler
  #[rocket::get("/user")]
- fn get_user(user: User) -> String {
-    return format!("Logged in as user {}!", user.user_id);
+ fn get_user(session: MySession) -> String {
+    return format!("Logged in as user {}!", session.user_id);
  }
 ```
 

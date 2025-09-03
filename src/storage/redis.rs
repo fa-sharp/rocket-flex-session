@@ -1,7 +1,7 @@
 //! Session storage with Redis (and Redis-compatible databases)
 
 use fred::{
-    prelude::{ClientLike, HashesInterface, KeysInterface, Pool, Value},
+    prelude::{HashesInterface, KeysInterface, Pool, Value},
     types::Expiration,
 };
 use rocket::{async_trait, http::CookieJar};
@@ -23,15 +23,16 @@ inverse `TryFrom<MyData> for Value`, in order to dictate how the data will be co
 - For `RedisType::Hash`, convert to/from `Value::Map`
 
 ```rust
-use fred::prelude::{Builder, Config, Value};
+use fred::prelude::{Builder, ClientLike, Config, Value};
 use rocket_flex_session::storage::redis::{RedisFredStorage, RedisType};
 
-fn setup_storage() -> RedisFredStorage {
-    // Setup a fred.rs Redis pool. Don't initialize the pool - initialization and closing will be handled automatically
+async fn setup_storage() -> RedisFredStorage {
+    // Setup and initialize a fred.rs Redis pool.
     let redis_pool = Builder::default_centralized()
         .set_config(Config::from_url("redis://localhost").expect("Valid Redis URL"))
         .build_pool(4)
         .expect("Should build Redis pool");
+    redis_pool.init().await.expect("Should initialize Redis pool");
     let storage = RedisFredStorage::new(
         redis_pool,
         RedisType::String,  // or RedisType::Hash
@@ -44,6 +45,7 @@ fn setup_storage() -> RedisFredStorage {
 struct MySessionData {
     user_id: String,
 }
+
 // TryFrom<Value> to convert from the Redis value to your session data type
 impl TryFrom<Value> for MySessionData {
     type Error = &'static str;
@@ -56,7 +58,12 @@ impl TryFrom<Value> for MySessionData {
         }
     }
 }
-// ... and you'll need a `TryFrom<MySessionData> for Value` implementation too
+// You can use From or TryFrom for the inverse conversion
+impl From<MySessionData> for Value {
+    fn from(data: MySessionData) -> Self {
+        Value::String(data.user_id.into())
+    }
+}
 ```
 */
 pub struct RedisFredStorage {
@@ -103,7 +110,7 @@ where
             None => pipeline.all().await?,
             Some(new_ttl) => {
                 let _: () = pipeline.expire(&key, new_ttl.into(), None).await?;
-                let (value, orig_ttl, _expire_res): (Option<Value>, i64, Option<u8>) =
+                let (value, orig_ttl, _expire_result): (Option<Value>, i64, Option<u8>) =
                     pipeline.all().await?;
                 (value, orig_ttl)
             }
@@ -145,20 +152,6 @@ where
 
     async fn delete(&self, id: &str) -> SessionResult<()> {
         let _: u8 = self.pool.del(self.key(id)).await?;
-        Ok(())
-    }
-
-    async fn setup(&self) -> SessionResult<()> {
-        rocket::debug!("Initializing fred.rs Redis pool...");
-        self.pool.init().await?;
-        rocket::info!("Initilaized fred.rs Redis pool");
-        Ok(())
-    }
-
-    async fn shutdown(&self) -> SessionResult<()> {
-        rocket::debug!("Shutting down fred.rs Redis pool...");
-        self.pool.quit().await?;
-        rocket::info!("Shut down fred.rs Redis pool");
         Ok(())
     }
 }
