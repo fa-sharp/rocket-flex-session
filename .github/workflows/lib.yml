@@ -39,8 +39,6 @@ jobs:
         run: rustup toolchain install stable --profile minimal --no-self-update
       - name: Setup rust-cache
         uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: ./api
       - name: Install nextest
         uses: taiki-e/install-action@v2
         with:
