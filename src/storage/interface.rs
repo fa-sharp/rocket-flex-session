@@ -17,7 +17,7 @@ pub enum SessionError {
     #[error("Session expired")]
     Expired,
     /// Error serializing or deserializing the session data
-    #[error("Failed to serialize/deserialize session")]
+    #[error("Failed to serialize/deserialize session: {0}")]
     Serialization(Box<dyn std::error::Error + Send + Sync>),
     /// An unexpected error from the storage backend
     #[error("Storage backend error: {0}")]
@@ -25,25 +25,11 @@ pub enum SessionError {
 
     #[cfg(feature = "redis_fred")]
     #[error("fred.rs client error: {0}")]
-    RedisFredError(fred::error::Error),
+    RedisFredError(#[from] fred::error::Error),
 
     #[cfg(feature = "sqlx_postgres")]
     #[error("Sqlx error: {0}")]
-    SqlxError(sqlx::Error),
-}
-
-#[cfg(feature = "redis_fred")]
-impl From<fred::error::Error> for SessionError {
-    fn from(value: fred::error::Error) -> Self {
-        SessionError::RedisFredError(value)
-    }
-}
-
-#[cfg(feature = "sqlx_postgres")]
-impl From<sqlx::Error> for SessionError {
-    fn from(value: sqlx::Error) -> Self {
-        SessionError::SqlxError(value)
-    }
+    SqlxError(#[from] sqlx::Error),
 }
 
 pub type SessionResult<T> = Result<T, SessionError>;
