@@ -14,8 +14,9 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
+...
 rocket = "0.5"
-rocket-flex-session = { version = "0.1", git = "https://github.com/fa-sharp/rocket-flex-session" }
+rocket-flex-session = { version = "0.1" }
 ```
 
 Basic usage:

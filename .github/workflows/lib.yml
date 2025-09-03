@@ -1,11 +1,11 @@
 name: CI
 on:
   push:
-    # paths:
-    #   - ./src/**
-    #   - ./tests/**
-    #   - ./Cargo.toml
-    #   - ./Cargo.lock
+    paths:
+      - src/**
+      - tests/**
+      - Cargo.toml
+      - Cargo.lock
 
 jobs:
   test:

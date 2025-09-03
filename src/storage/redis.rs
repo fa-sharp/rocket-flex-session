@@ -24,7 +24,7 @@ inverse `TryFrom<MyData> for Value`, in order to dictate how the data will be co
 
 ```rust
 use fred::prelude::{Builder, ClientLike, Config, Value};
-use rocket_flex_session::storage::redis::{RedisFredStorage, RedisType};
+use rocket_flex_session::storage::{interface::SessionError, redis::{RedisFredStorage, RedisType}};
 
 async fn setup_storage() -> RedisFredStorage {
     // Setup and initialize a fred.rs Redis pool.
@@ -46,15 +46,15 @@ struct MySessionData {
     user_id: String,
 }
 
-// TryFrom<Value> to convert from the Redis value to your session data type
+// Implement `TryFrom<Value>` to convert from the Redis value to your session data type
 impl TryFrom<Value> for MySessionData {
-    type Error = &'static str;
+    type Error = SessionError; // or use your own error type
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         match value {
             Value::String(id) => Ok(MySessionData {
                 user_id: id.to_string(),
             }),
-            _ => Err("Redis value had incorrect type"),
+            _ => Err(SessionError::NotFound),
         }
     }
 }
