@@ -13,8 +13,9 @@ rust-version = "1.78.0"
 license = "MIT"
 repository = "https://github.com/fa-sharp/rocket-flex-session"
 homepage = "https://github.com/fa-sharp/rocket-flex-session"
-# documentation = "https://docs.rs/rocket_flex_session"
+documentation = "https://docs.rs/rocket_flex_session"
 keywords = ["rocket", "session", "web", "authentication"]
+exclude = [".github/", ".zed/", ".config/"]
 
 [lib]
 
