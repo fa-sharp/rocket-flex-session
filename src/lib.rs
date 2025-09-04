@@ -137,13 +137,16 @@ mod fairing;
 mod guard;
 mod options;
 mod session;
+mod session_index;
 mod session_inner;
 
+pub mod error;
 pub mod storage;
 pub use options::SessionOptions;
 pub use session::Session;
+pub use session_index::SessionIdentifier;
 
-use crate::storage::{interface::SessionStorage, memory::MemoryStorage};
+use crate::storage::{memory::MemoryStorage, SessionStorage};
 use std::sync::Arc;
 
 /**

@@ -6,7 +6,9 @@ use fred::{
 };
 use rocket::{async_trait, http::CookieJar};
 
-use super::interface::{SessionError, SessionResult, SessionStorage};
+use crate::error::{SessionError, SessionResult};
+
+use super::interface::SessionStorage;
 
 #[derive(Debug)]
 pub enum RedisType {

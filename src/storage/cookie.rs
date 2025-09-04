@@ -7,7 +7,9 @@ use rocket::{
     time::{Duration, OffsetDateTime},
 };
 
-use super::interface::{SessionError, SessionResult, SessionStorage};
+use crate::error::{SessionError, SessionResult};
+
+use super::interface::SessionStorage;
 
 /**
 Storage provider for sessions backed by cookies. All session data is serialized to JSON

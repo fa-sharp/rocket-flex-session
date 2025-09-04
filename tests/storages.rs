@@ -6,9 +6,9 @@ use std::{future::Future, pin::Pin};
 use fred::prelude::{ClientLike, ReconnectPolicy};
 use rocket::{http::Status, local::asynchronous::Client, tokio::time::sleep, Build, Rocket};
 use rocket_flex_session::{
+    error::SessionError,
     storage::{
         cookie::CookieStorage,
-        interface::SessionError,
         redis::{RedisFredStorage, RedisType},
         sqlx::SqlxPostgresStorage,
     },

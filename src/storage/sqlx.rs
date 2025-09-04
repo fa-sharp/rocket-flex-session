@@ -4,7 +4,9 @@ use rocket::{async_trait, http::CookieJar};
 use sqlx::{PgPool, Row};
 use time::{Duration, OffsetDateTime};
 
-use super::interface::{SessionError, SessionResult, SessionStorage};
+use crate::error::{SessionError, SessionResult};
+
+use super::interface::SessionStorage;
 
 /**
 Session store using PostgreSQL via [sqlx](https://docs.rs/crate/sqlx). Stores the session data as a string, so you'll need

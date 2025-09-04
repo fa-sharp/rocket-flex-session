@@ -7,13 +7,12 @@ use std::{
     fmt::Display,
     hash::Hash,
     marker::{Send, Sync},
-    sync::{Arc, Mutex, MutexGuard},
+    sync::{Mutex, MutexGuard},
 };
 
 use crate::{
-    options::SessionOptions,
-    session_inner::SessionInner,
-    storage::interface::{SessionError, SessionStorage},
+    error::SessionError, options::SessionOptions, session_inner::SessionInner,
+    storage::SessionStorage,
 };
 
 /**
@@ -47,10 +46,10 @@ fn profile(session: Session<UserSession>) -> String {
 */
 pub struct Session<'a, T>
 where
-    T: Send + Sync,
+    T: Send + Sync + Clone,
 {
     /// Internal mutable state of the session
-    inner: Arc<Mutex<SessionInner<T>>>,
+    inner: &'a Mutex<SessionInner<T>>,
     /// Error (if any) when retrieving from storage
     error: Option<&'a SessionError>,
     /// Rocket's cookie jar for managing cookies
@@ -58,7 +57,7 @@ where
     /// User's session options
     options: &'a SessionOptions,
     /// Configured storage provider for sessions
-    storage: &'a dyn SessionStorage<T>,
+    pub(crate) storage: &'a dyn SessionStorage<T>,
 }
 
 impl<T> Display for Session<'_, T>
@@ -66,7 +65,7 @@ where
     T: Send + Sync + Clone,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "Session(id: {:?})", self.get_inner().get_id())
+        write!(f, "Session(id: {:?})", self.get_inner_lock().get_id())
     }
 }
 
@@ -76,7 +75,7 @@ where
 {
     /// Create a new session instance to keep track of the session state in a request
     pub(crate) fn new(
-        inner: Arc<Mutex<SessionInner<T>>>,
+        inner: &'a Mutex<SessionInner<T>>,
         error: Option<&'a SessionError>,
         cookie_jar: &'a CookieJar<'a>,
         options: &'a SessionOptions,
@@ -93,12 +92,14 @@ where
 
     /// Get the session ID (alphanumeric string). Will be `None` if there's no active session.
     pub fn id(&self) -> Option<String> {
-        self.get_inner().get_id().map(|s| s.to_owned())
+        self.get_inner_lock().get_id().map(|s| s.to_owned())
     }
 
     /// Get the current session data via cloning. Will be `None` if there's no active session.
     pub fn get(&self) -> Option<T> {
-        self.get_inner().get_current_data().map(|d| d.to_owned())
+        self.get_inner_lock()
+            .get_current_data()
+            .map(|d| d.to_owned())
     }
 
     /// Get a reference to the current session data via a closure.
@@ -107,7 +108,7 @@ where
     where
         F: FnOnce(Option<&T>) -> R,
     {
-        f(self.get_inner().get_current_data())
+        f(self.get_inner_lock().get_current_data())
     }
 
     /// Get a mutable reference to the current session data via a closure.
@@ -116,7 +117,9 @@ where
     where
         UpdateFn: FnOnce(&mut Option<T>) -> R,
     {
-        let (response, is_deleted) = self.get_inner().tap_data_mut(f, self.get_default_ttl());
+        let (response, is_deleted) = self
+            .get_inner_lock()
+            .tap_data_mut(f, self.get_default_ttl());
         if is_deleted {
             self.delete();
         } else {
@@ -128,20 +131,21 @@ where
 
     /// Set/update the session data. Will create a new active session if needed.
     pub fn set(&mut self, new_data: T) {
-        self.get_inner().set_data(new_data, self.get_default_ttl());
+        self.get_inner_lock()
+            .set_data(new_data, self.get_default_ttl());
         self.update_cookies();
     }
 
     /// Set the TTL of the session in seconds. This can be used to extend the length
     /// of the session if needed. This has no effect if there is no active session.
     pub fn set_ttl(&mut self, new_ttl: u32) {
-        self.get_inner().set_ttl(new_ttl);
+        self.get_inner_lock().set_ttl(new_ttl);
         self.update_cookies();
     }
 
     /// Get the session TTL in seconds.
     pub fn ttl(&self) -> u32 {
-        self.get_inner()
+        self.get_inner_lock()
             .get_current_ttl()
             .unwrap_or(self.get_default_ttl())
     }
@@ -154,7 +158,7 @@ where
     /// Delete the session.
     pub fn delete(&mut self) {
         // Delete inner session data
-        let mut inner = self.get_inner();
+        let mut inner = self.get_inner_lock();
         inner.delete();
 
         // Remove the session cookie
@@ -183,7 +187,7 @@ where
         self.error
     }
 
-    fn get_inner(&self) -> MutexGuard<'_, SessionInner<T>> {
+    pub(crate) fn get_inner_lock(&self) -> MutexGuard<'_, SessionInner<T>> {
         self.inner.lock().expect("Failed to get session data lock")
     }
 
@@ -192,7 +196,7 @@ where
     }
 
     fn update_cookies(&self) {
-        let inner = self.get_inner();
+        let inner = self.get_inner_lock();
         let Some(id) = inner.get_id() else {
             rocket::info!("Cookies not updated: no active session");
             return;
@@ -226,7 +230,7 @@ where
         Q: ?Sized + Eq + Hash,
         K: std::borrow::Borrow<Q>,
     {
-        self.get_inner()
+        self.get_inner_lock()
             .get_current_data()
             .and_then(|h| h.get(key).cloned())
     }
@@ -235,7 +239,7 @@ where
     /// a new session if needed.
     pub fn set_key(&mut self, key: K, value: V) {
         let mut new_data = self
-            .get_inner()
+            .get_inner_lock()
             .get_current_data()
             .cloned()
             .unwrap_or_default();
@@ -250,7 +254,7 @@ where
         I: IntoIterator<Item = (K, V)>,
     {
         let mut new_data = self
-            .get_inner()
+            .get_inner_lock()
             .get_current_data()
             .cloned()
             .unwrap_or_default();

@@ -13,9 +13,12 @@ use rocket::{
     tokio::{select, spawn, sync::oneshot},
 };
 
-use super::interface::{
-    IndexedSessionStorage, SessionError, SessionIdentifier, SessionResult, SessionStorage,
+use crate::{
+    error::{SessionError, SessionResult},
+    SessionIdentifier,
 };
+
+use super::interface::{SessionStorage, SessionStorageIndexed};
 
 /// In-memory storage provider for sessions. This is designed mostly for local
 /// development, and not for production use. It uses the [retainer] crate to
@@ -105,7 +108,7 @@ impl<T> MemoryStorage<T> {
     }
 }
 
-/// Extended in-memory storage that supports session indexing by identifier.
+/// In-memory storage that supports session indexing by identifier.
 /// This allows for operations like retrieving all sessions for a user or
 /// bulk invalidation of sessions.
 pub struct IndexedMemoryStorage<T>
@@ -194,6 +197,10 @@ where
         self.base_storage.delete(id, cookie_jar).await
     }
 
+    fn as_indexed_storage(&self) -> Option<&dyn SessionStorageIndexed<T>> {
+        Some(self)
+    }
+
     async fn setup(&self) -> SessionResult<()> {
         self.base_storage.setup().await
     }
@@ -203,22 +210,23 @@ where
     }
 }
 
-impl<T> IndexedSessionStorage<T> for IndexedMemoryStorage<T>
+#[async_trait]
+impl<T> SessionStorageIndexed<T> for IndexedMemoryStorage<T>
 where
     Self: SessionStorage<T>,
     T: SessionIdentifier + Clone + Send + Sync,
     T::Id: ToString,
 {
-    async fn get_sessions_by_identifier(&self, id: &T::Id) -> SessionResult<Vec<T>> {
+    async fn get_sessions_by_identifier(&self, id: &T::Id) -> SessionResult<Vec<(String, T)>> {
         let session_ids = {
             let index = self.identifier_index.lock().unwrap();
             index.get(&id.to_string()).cloned().unwrap_or_default()
         };
 
-        let mut sessions: Vec<T> = Vec::new();
+        let mut sessions: Vec<(String, T)> = Vec::new();
         for session_id in session_ids {
             if let Some(data) = self.base_storage.cache().get(&session_id).await {
-                sessions.push(data.value().to_owned());
+                sessions.push((session_id, data.value().to_owned()));
             }
         }
 

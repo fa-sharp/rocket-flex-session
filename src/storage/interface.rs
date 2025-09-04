@@ -1,38 +1,8 @@
 //! Shared interface for session storage
 
-use std::fmt::Debug;
-
 use rocket::{async_trait, http::CookieJar};
 
-/// Errors that can happen during session retrieval/handling
-#[derive(Debug, thiserror::Error)]
-pub enum SessionError {
-    /// There was no session cookie, or decryption of the cookie failed
-    #[error("No session cookie")]
-    NoSessionCookie,
-    /// Session wasn't found in storage
-    #[error("Session not found")]
-    NotFound,
-    /// Session was found but it was expired
-    #[error("Session expired")]
-    Expired,
-    /// Error serializing or deserializing the session data
-    #[error("Failed to serialize/deserialize session: {0}")]
-    Serialization(Box<dyn std::error::Error + Send + Sync>),
-    /// An unexpected error from the storage backend
-    #[error("Storage backend error: {0}")]
-    Backend(Box<dyn std::error::Error + Send + Sync>),
-
-    #[cfg(feature = "redis_fred")]
-    #[error("fred.rs client error: {0}")]
-    RedisFredError(#[from] fred::error::Error),
-
-    #[cfg(feature = "sqlx_postgres")]
-    #[error("Sqlx error: {0}")]
-    SqlxError(#[from] sqlx::Error),
-}
-
-pub type SessionResult<T> = Result<T, SessionError>;
+use crate::{error::SessionResult, SessionIdentifier};
 
 /// Trait representing a session backend storage. You can use your own session storage
 /// by implementing this trait.
@@ -43,7 +13,7 @@ where
 {
     /// Load session data and TTL (time-to-live in seconds) from storage. If a TTL value is provided,
     /// it should be set upon retreiving the session. If session is already expired
-    /// or otherwise invalid, a [SessionError] should be returned instead.
+    /// or otherwise invalid, a [`SessionError`](crate::error::SessionError) should be returned instead.
     async fn load(
         &self,
         id: &str,
@@ -71,6 +41,12 @@ where
         Ok(()) // Default no-op
     }
 
+    /// Storages that support indexing (by implementing [`SessionStorageIndexed`]) must
+    /// also implement this. Implementation should be trivial: `Some(self)`
+    fn as_indexed_storage(&self) -> Option<&dyn SessionStorageIndexed<T>> {
+        None // Default not supported
+    }
+
     /// Optional setup of resources that will be called on server startup
     async fn setup(&self) -> SessionResult<()> {
         Ok(()) // Default no-op
@@ -82,65 +58,22 @@ where
     }
 }
 
-/// Optional trait for session data types that can be grouped by an identifier.
-/// This enables features like retrieving all sessions for a user or invalidating
-/// all sessions when a user's password changes.
-///
-/// The identifier should be stable for the lifetime of a session - it should not
-/// change while the session is active.
-///
-/// # Example
-/// ```rust
-/// use rocket_flex_session::storage::SessionIdentifier;
-///
-/// #[derive(Clone)]
-/// struct MySession {
-///     user_id: String,
-///     role: String,
-/// }
-///
-/// impl SessionIdentifier for MySession {
-///     type Id = String;
-///
-///     fn identifier(&self) -> Option<Self::Id> {
-///         Some(self.user_id.clone())
-///     }
-/// }
-/// ```
-pub trait SessionIdentifier {
-    /// The type of the identifier (e.g., user ID, account ID, etc.)
-    type Id: Send + Sync;
-
-    /// Extract the identifier from the session data.
-    /// Returns `None` if the session doesn't have an identifier or
-    /// shouldn't be indexed.
-    fn identifier(&self) -> Option<&Self::Id>;
-}
-
 /// Extended trait for storage backends that support session indexing by identifier.
 /// This allows operations like finding all sessions for a user or bulk invalidation.
 ///
-/// Not all storage backends support this - for example, cookie-based storage
+/// Not all storage backends can support this - for example, cookie-based storage
 /// cannot implement this trait since cookies are only persisted on the client-side.
-pub trait IndexedSessionStorage<T>: SessionStorage<T>
+#[async_trait]
+pub trait SessionStorageIndexed<T>: SessionStorage<T>
 where
     T: SessionIdentifier + Send + Sync,
 {
     /// Retrieve all session data for the given identifier.
-    fn get_sessions_by_identifier(
-        &self,
-        id: &T::Id,
-    ) -> impl std::future::Future<Output = SessionResult<Vec<T>>>;
+    async fn get_sessions_by_identifier(&self, id: &T::Id) -> SessionResult<Vec<(String, T)>>;
 
     /// Get all session IDs associated with the given identifier.
-    fn get_session_ids_by_identifier(
-        &self,
-        id: &T::Id,
-    ) -> impl std::future::Future<Output = SessionResult<Vec<String>>>;
+    async fn get_session_ids_by_identifier(&self, id: &T::Id) -> SessionResult<Vec<String>>;
 
     /// Remove all sessions associated with the given identifier.
-    fn invalidate_sessions_by_identifier(
-        &self,
-        id: &T::Id,
-    ) -> impl std::future::Future<Output = SessionResult<()>>;
+    async fn invalidate_sessions_by_identifier(&self, id: &T::Id) -> SessionResult<()>;
 }

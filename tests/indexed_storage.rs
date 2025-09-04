@@ -1,7 +1,7 @@
 use rocket::local::asynchronous::Client;
-use rocket_flex_session::storage::{
-    interface::{IndexedSessionStorage, SessionIdentifier, SessionStorage},
-    memory::IndexedMemoryStorage,
+use rocket_flex_session::{
+    storage::{memory::IndexedMemoryStorage, SessionStorage, SessionStorageIndexed},
+    SessionIdentifier,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -60,15 +60,21 @@ async fn indexed_memory_storage_basic_operations() {
         .await
         .unwrap();
     assert_eq!(user1_sessions.len(), 2);
-    assert!(user1_sessions.contains(&session1));
-    assert!(user1_sessions.contains(&session2));
+    assert!(user1_sessions
+        .iter()
+        .any(|(id, data)| id == "sid1" && data == &session1));
+    assert!(user1_sessions
+        .iter()
+        .any(|(id, data)| id == "sid2" && data == &session2));
 
     let user2_sessions = storage
         .get_sessions_by_identifier(&"user2".to_string())
         .await
         .unwrap();
     assert_eq!(user2_sessions.len(), 1);
-    assert!(user2_sessions.contains(&session3));
+    assert!(user2_sessions
+        .iter()
+        .any(|(id, data)| id == "sid3" && data == &session3));
 
     // Test get_session_ids_by_identifier
     let user1_session_ids = storage
@@ -137,7 +143,9 @@ async fn indexed_memory_storage_invalidate_by_identifier() {
         .await
         .unwrap();
     assert_eq!(user2_sessions.len(), 1);
-    assert!(user2_sessions.contains(&session3));
+    assert!(user2_sessions
+        .iter()
+        .any(|(id, data)| id == "sid3" && data == &session3));
 
     storage.shutdown().await.unwrap();
 }
@@ -180,7 +188,9 @@ async fn indexed_memory_storage_delete_single_session() {
         .await
         .unwrap();
     assert_eq!(remaining_sessions.len(), 1);
-    assert!(remaining_sessions.contains(&session2));
+    assert!(remaining_sessions
+        .iter()
+        .any(|(id, data)| id == "sid2" && data == &session2));
 
     storage.shutdown().await.unwrap();
 }

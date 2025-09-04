@@ -10,10 +10,8 @@ use rocket::{
 };
 
 use crate::{
-    session::Session,
-    session_inner::SessionInner,
-    storage::interface::{SessionError, SessionStorage},
-    RocketFlexSession,
+    error::SessionError, session_inner::SessionInner, storage::SessionStorage, RocketFlexSession,
+    Session,
 };
 
 /// Type of the cached inner session data in Rocket's request local cache
@@ -48,7 +46,7 @@ where
             .await;
 
         Outcome::Success(Session::new(
-            cached_inner.clone(),
+            cached_inner.as_ref(),
             session_error.as_ref(),
             cookie_jar,
             &fairing.options,
@@ -85,10 +83,8 @@ async fn get_session_data<'r, T: Send + Sync + Clone>(
         match storage.load(id, rolling_ttl, cookie_jar).await {
             Ok((data, ttl)) => {
                 rocket::debug!("Session found. Creating existing session...");
-                (
-                    Arc::new(Mutex::new(SessionInner::new_existing(id, data, ttl))),
-                    None,
-                )
+                let session_inner = SessionInner::new_existing(id, data, ttl);
+                (Arc::new(Mutex::new(session_inner)), None)
             }
             Err(e) => {
                 rocket::debug!("Error from session storage, creating empty session: {}", e);

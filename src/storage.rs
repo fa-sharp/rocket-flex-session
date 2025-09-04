@@ -1,6 +1,8 @@
 //! Storage implementations for sessions
 
-pub mod interface;
+mod interface;
+pub use interface::*;
+
 pub mod memory;
 
 #[cfg(feature = "cookie")]

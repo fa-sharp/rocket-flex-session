@@ -1,5 +1,7 @@
 use rand::distributions::{Alphanumeric, DistString};
 
+use crate::SessionIdentifier;
+
 /// Represents a current, active session
 struct ActiveSession<T> {
     /// Session ID (20-character alphanumeric string)
@@ -149,5 +151,15 @@ where
                 .and_then(|c| c.pending_data.map(|data| (c.id, data, c.ttl))),
             self.deleted.take(),
         )
+    }
+}
+
+impl<T> SessionInner<T>
+where
+    T: SessionIdentifier + Clone,
+{
+    pub(crate) fn get_current_identifier(&self) -> Option<T::Id> {
+        self.get_current_data()
+            .and_then(|data| data.identifier().cloned())
     }
 }
