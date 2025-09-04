@@ -18,6 +18,7 @@ use crate::{error::SessionError, storage::SessionStorageIndexed, Session};
 /// }
 ///
 /// impl SessionIdentifier for MySession {
+///     const NAME: &str = "user_id";
 ///     type Id = String;
 ///
 ///     fn identifier(&self) -> Option<&Self::Id> {
@@ -26,7 +27,10 @@ use crate::{error::SessionError, storage::SessionStorageIndexed, Session};
 /// }
 /// ```
 pub trait SessionIdentifier {
-    /// The type of the identifier (e.g., user ID, account ID, etc.)
+    /// The name of the identifier (default: "user_id")
+    const NAME: &str = "user_id";
+
+    /// The type of the identifier
     type Id: Send + Sync + Clone;
 
     /// Extract the identifier from the session data.
