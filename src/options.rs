@@ -1,6 +1,6 @@
 /// Options for configuring the session.
 #[derive(Clone, Debug)]
-pub struct SessionOptions {
+pub struct RocketFlexSessionOptions {
     /// The name of the cookie used to store the session ID (default: `"rocket"`)
     pub cookie_name: String,
     /// The session cookie's `Domain` attribute (default: `None`)
@@ -26,7 +26,7 @@ pub struct SessionOptions {
     pub ttl: Option<u32>,
 }
 
-impl Default for SessionOptions {
+impl Default for RocketFlexSessionOptions {
     fn default() -> Self {
         Self {
             cookie_name: "rocket".to_owned(),

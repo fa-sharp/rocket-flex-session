@@ -23,6 +23,8 @@ use super::interface::{SessionStorage, SessionStorageIndexed};
 /// In-memory storage provider for sessions. This is designed mostly for local
 /// development, and not for production use. It uses the [retainer] crate to
 /// create an async cache.
+///
+/// For session indexing support, see [`IndexedMemoryStorage`].
 pub struct MemoryStorage<T> {
     shutdown_tx: Mutex<Option<oneshot::Sender<()>>>,
     pub(crate) cache: Arc<Cache<String, T>>,
@@ -108,9 +110,36 @@ impl<T> MemoryStorage<T> {
     }
 }
 
-/// In-memory storage that supports session indexing by identifier.
+/// Extended in-memory storage that supports session indexing by identifier.
 /// This allows for operations like retrieving all sessions for a user or
 /// bulk invalidation of sessions.
+///
+/// Unlike [`MemoryStorage`], this implementation maintains an index mapping
+/// identifiers to session IDs, enabling efficient lookups and bulk operations.
+///
+/// # Example
+/// ```rust
+/// use rocket_flex_session::storage::memory::IndexedMemoryStorage;
+/// use rocket_flex_session::{SessionIdentifier, RocketFlexSession};
+///
+/// #[derive(Clone)]
+/// struct UserSession {
+///     user_id: String,
+///     data: String,
+/// }
+///
+/// impl SessionIdentifier for UserSession {
+///     type Id = String;
+///     fn identifier(&self) -> Option<&Self::Id> {
+///         Some(&self.user_id)
+///     }
+/// }
+///
+/// let storage = IndexedMemoryStorage::<UserSession>::default();
+/// let fairing = RocketFlexSession::builder()
+///     .storage(storage)
+///     .build();
+/// ```
 pub struct IndexedMemoryStorage<T>
 where
     T: SessionIdentifier,

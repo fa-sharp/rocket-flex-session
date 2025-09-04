@@ -11,7 +11,7 @@ use std::{
 };
 
 use crate::{
-    error::SessionError, options::SessionOptions, session_inner::SessionInner,
+    error::SessionError, options::RocketFlexSessionOptions, session_inner::SessionInner,
     storage::SessionStorage,
 };
 
@@ -55,7 +55,7 @@ where
     /// Rocket's cookie jar for managing cookies
     cookie_jar: &'a CookieJar<'a>,
     /// User's session options
-    options: &'a SessionOptions,
+    options: &'a RocketFlexSessionOptions,
     /// Configured storage provider for sessions
     pub(crate) storage: &'a dyn SessionStorage<T>,
 }
@@ -78,7 +78,7 @@ where
         inner: &'a Mutex<SessionInner<T>>,
         error: Option<&'a SessionError>,
         cookie_jar: &'a CookieJar<'a>,
-        options: &'a SessionOptions,
+        options: &'a RocketFlexSessionOptions,
         storage: &'a dyn SessionStorage<T>,
     ) -> Self {
         Self {
@@ -264,7 +264,7 @@ where
 }
 
 /// Create the session cookie
-fn create_session_cookie(id: &str, options: &SessionOptions) -> Cookie<'static> {
+fn create_session_cookie(id: &str, options: &RocketFlexSessionOptions) -> Cookie<'static> {
     let mut cookie = Cookie::build((options.cookie_name.to_owned(), id.to_owned()))
         .http_only(options.http_only)
         .max_age(Duration::seconds(options.max_age.into()))

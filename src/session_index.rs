@@ -9,7 +9,7 @@ use crate::{error::SessionError, storage::SessionStorageIndexed, Session};
 ///
 /// # Example
 /// ```rust
-/// use rocket_flex_session::storage::SessionIdentifier;
+/// use rocket_flex_session::SessionIdentifier;
 ///
 /// #[derive(Clone)]
 /// struct MySession {

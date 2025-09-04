@@ -26,7 +26,7 @@ inverse `TryFrom<MyData> for Value`, in order to dictate how the data will be co
 
 ```rust
 use fred::prelude::{Builder, ClientLike, Config, Value};
-use rocket_flex_session::storage::{interface::SessionError, redis::{RedisFredStorage, RedisType}};
+use rocket_flex_session::{error::SessionError, storage::{redis::{RedisFredStorage, RedisType}}};
 
 async fn setup_storage() -> RedisFredStorage {
     // Setup and initialize a fred.rs Redis pool.

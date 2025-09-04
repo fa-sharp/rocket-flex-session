@@ -14,7 +14,9 @@ Simple, extensible session library for Rocket applications.
   call will be made to get the session data, and if the session is updated multiple times
   during the request, only one call will be made at the end of the request to save the session.
 - Multiple storage providers available, or you can
-  use your own session storage by implementing the [SessionStorage] trait.
+  use your own session storage by implementing the (`SessionStorage`)[crate::storage::SessionStorage] trait.
+- Optional session indexing support for advanced features like multi-device login tracking,
+  bulk session invalidation, and security auditing.
 
 # Usage
 While technically not needed for development, it is highly recommended to
@@ -120,6 +122,154 @@ fn login(mut session: Session<MySessionData>) {
 }
 ```
 
+## Session Indexing
+
+For use cases like multi-device login tracking or other security features, you can use a storage
+provider that supports indexing, and then group sessions by an identifier (such as a user ID) using the [`SessionIdentifier`] trait:
+
+```rust
+use rocket::routes;
+use rocket_flex_session::{Session, SessionIdentifier, RocketFlexSession};
+use rocket_flex_session::storage::memory::IndexedMemoryStorage;
+
+#[derive(Clone)]
+struct UserSession {
+    user_id: String,
+    device_name: String,
+}
+
+impl SessionIdentifier for UserSession {
+    type Id = String;
+
+    fn identifier(&self) -> Option<&Self::Id> {
+        Some(&self.user_id) // Group sessions by user_id
+    }
+}
+
+#[rocket::get("/user/sessions")]
+async fn get_all_user_sessions(session: Session<'_, UserSession>) -> String {
+    match session.get_all_sessions().await {
+        Ok(Some(sessions)) => format!("Found {} active sessions", sessions.len()),
+        Ok(None) => "No active session".to_string(),
+        Err(e) => format!("Error: {}", e),
+    }
+}
+
+#[rocket::get("/user/logout-everywhere")]
+async fn logout_everywhere(session: Session<'_, UserSession>) -> String {
+    match session.invalidate_all_sessions().await {
+        Ok(Some(())) => "Logged out from all devices".to_string(),
+        Ok(None) => "No active session".to_string(),
+        Err(e) => format!("Error: {}", e),
+    }
+}
+
+#[rocket::launch]
+fn rocket() -> _ {
+    rocket::build()
+        .attach(
+            RocketFlexSession::<UserSession>::builder()
+                .storage(IndexedMemoryStorage::default())
+                .build()
+        )
+        .mount("/", routes![get_all_user_sessions, logout_everywhere])
+}
+```
+
+# Storage Providers
+
+This crate supports multiple storage backends with different capabilities:
+
+## Available Storage Providers
+
+| Storage | Feature Flag | Indexing Support | Use Case |
+|---------|-------------|------------------|----------|
+| [`storage::memory::MemoryStorage`] | Built-in | ❌ | Development, testing |
+| [`storage::memory::IndexedMemoryStorage`] | Built-in | ✅ | Development with indexing features |
+| [`storage::cookie::CookieStorage`] | `cookie` | ❌ | Client-side storage, stateless servers |
+| [`storage::redis::RedisFredStorage`] | `redis_fred` | ❌ | Production, distributed systems |
+| [`storage::sqlx::SqlxPostgresStorage`] | `sqlx_postgres` | ✅* | Production, existing database |
+
+*Support planned - see [Custom Storage](#custom-storage) section for implementation details.
+
+## Custom Storage
+
+To implement a custom storage provider, implement the [`SessionStorage`](crate::storage::SessionStorage) trait:
+
+```rust
+use rocket_flex_session::{error::SessionResult, storage::SessionStorage};
+use rocket::{async_trait, http::CookieJar};
+
+pub struct MyCustomStorage {}
+
+#[async_trait]
+impl<T> SessionStorage<T> for MyCustomStorage
+where
+    T: Send + Sync + Clone + 'static,
+{
+    async fn load(&self, id: &str, ttl: Option<u32>, cookie_jar: &CookieJar) -> SessionResult<(T, u32)> {
+        // Load session from your storage
+        todo!()
+    }
+
+    async fn save(&self, id: &str, data: T, ttl: u32) -> SessionResult<()> {
+        // Save session to your storage
+        todo!()
+    }
+
+    async fn delete(&self, id: &str, cookie_jar: &CookieJar) -> SessionResult<()> {
+        // Delete session from your storage
+        todo!()
+    }
+}
+```
+
+### Adding Indexing Support
+
+To support session indexing, also implement [`SessionStorageIndexed`](crate::storage::SessionStorageIndexed) and add the `as_indexed_storage` method
+to the [`SessionStorage`](crate::storage::SessionStorage) trait:
+
+
+```rust,ignore
+use rocket_flex_session::{error::SessionResult, storage::{SessionStorage, SessionStorageIndexed, SessionIdentifier}};
+
+struct MyCustomStorage;
+
+#[async_trait]
+impl<T> SessionStorageIndexed<T> for MyCustomStorage
+where
+    T: SessionIdentifier + Send + Sync + Clone + 'static,
+{
+    async fn get_sessions_by_identifier(&self, id: &T::Id) -> SessionResult<Vec<(String, T)>> {
+        // Return all (session_id, session_data) pairs for the identifier
+        todo!()
+    }
+    // etc...
+}
+
+// Make sure to also add this to the `SessionStorage` trait to enable indexing support
+#[async_trait]
+impl<T> SessionStorage<T> for MyCustomStorage
+where
+    T: Send + Sync + Clone + 'static,
+{
+    // ... other methods ...
+
+    fn as_indexed_storage(&self) -> Option<&dyn SessionStorageIndexed<T>> {
+        Some(self) // Enable indexing support
+    }
+}
+```
+
+### Implementation Tips
+
+1. **Thread Safety**: All storage implementations must be `Send + Sync`
+2. **Trait bounds**: Add additional trait bounds to the session data type as needed
+3. **Error Handling**: Use [`error::SessionError::Backend`] for custom errors
+4. **TTL Handling**: Respect the TTL parameters in `load` and `save` for session expiration
+5. **Indexing Consistency**: Keep identifier indexes in sync with session data
+6. **Cleanup**: Implement proper cleanup in `shutdown()` if needed
+
 # Feature flags
 
 These features can be enabled as shown
@@ -142,123 +292,7 @@ mod session_inner;
 
 pub mod error;
 pub mod storage;
-pub use options::SessionOptions;
+pub use fairing::{RocketFlexSession, RocketFlexSessionBuilder};
+pub use options::RocketFlexSessionOptions;
 pub use session::Session;
 pub use session_index::SessionIdentifier;
-
-use crate::storage::{memory::MemoryStorage, SessionStorage};
-use std::sync::Arc;
-
-/**
-A Rocket fairing that enables sessions.
-
-# Type Parameters
-* `T` - The type of your session data. Must be thread-safe and
-   implement Clone. The storage provider you use may have additional
-   trait bounds as well.
-
-# Example
-```rust
-use rocket_flex_session::{RocketFlexSession, SessionOptions, storage::cookie::CookieStorage};
-use rocket::time::Duration;
-use rocket::serde::{Deserialize, Serialize};
-
-#[derive(Clone, Serialize, Deserialize)]
-struct MySession {
-    user_id: String,
-    role: String,
-}
-
-#[rocket::launch]
-fn rocket() -> _ {
-    // Use default settings
-    let session_fairing = RocketFlexSession::<MySession>::default();
-
-    // Or customize settings with the builder
-    let custom_session = RocketFlexSession::<MySession>::builder()
-        .storage(CookieStorage::default()) // or a custom storage provider
-        .with_options(|opt| {
-            opt.cookie_name = "my_cookie".to_string();
-            opt.path = "/app".to_string();
-            opt.max_age = 7 * 24 * 60 * 60; // 7 days
-        })
-        .build();
-
-    rocket::build()
-        .attach(session_fairing)
-        // ... other configuration ...
-}
-```
-*/
-#[derive(Clone)]
-pub struct RocketFlexSession<T> {
-    pub(crate) options: SessionOptions,
-    pub(crate) storage: Arc<dyn SessionStorage<T>>,
-}
-impl<T> RocketFlexSession<T>
-where
-    T: Send + Sync + Clone + 'static,
-{
-    /// Build a session configuration
-    pub fn builder() -> RocketFlexSessionBuilder<T> {
-        RocketFlexSessionBuilder::default()
-    }
-}
-impl<T> Default for RocketFlexSession<T>
-where
-    T: Send + Sync + Clone + 'static,
-{
-    fn default() -> Self {
-        Self {
-            options: Default::default(),
-            storage: Arc::new(MemoryStorage::default()),
-        }
-    }
-}
-
-/// Builder to configure the [RocketFlexSession] fairing
-pub struct RocketFlexSessionBuilder<T>
-where
-    T: Send + Sync + Clone + 'static,
-{
-    fairing: RocketFlexSession<T>,
-}
-impl<T> Default for RocketFlexSessionBuilder<T>
-where
-    T: Send + Sync + Clone + 'static,
-{
-    fn default() -> Self {
-        Self {
-            fairing: Default::default(),
-        }
-    }
-}
-impl<T> RocketFlexSessionBuilder<T>
-where
-    T: Send + Sync + Clone + 'static,
-{
-    /// Set the session options via a closure. If you're using a cookie-based storage
-    /// provider, make sure to set the corresponding cookie settings
-    /// in the storage configuration as well.
-    pub fn with_options<OptionsFn>(&mut self, options_fn: OptionsFn) -> &mut Self
-    where
-        OptionsFn: FnOnce(&mut SessionOptions),
-    {
-        options_fn(&mut self.fairing.options);
-        self
-    }
-
-    /// Set the session storage provider
-    pub fn storage<S>(&mut self, storage: S) -> &mut Self
-    where
-        S: SessionStorage<T> + 'static,
-    {
-        self.fairing.storage = Arc::new(storage);
-        self
-    }
-
-    /// Build the fairing
-    pub fn build(&self) -> RocketFlexSession<T> {
-        self.fairing.clone()
-    }
-}
