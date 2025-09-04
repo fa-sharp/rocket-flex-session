@@ -109,7 +109,7 @@ where
         Ok(())
     }
 
-    async fn delete(&self, id: &str) -> SessionResult<()> {
+    async fn delete(&self, id: &str, _cookie_jar: &CookieJar) -> SessionResult<()> {
         sqlx::query(&format!("DELETE FROM {} WHERE id = $1", &self.table_name))
             .bind(id)
             .execute(&self.pool)

@@ -55,7 +55,7 @@ where
     async fn save(&self, id: &str, data: T, ttl: u32) -> SessionResult<()>;
 
     /// Delete a session in storage. This will be performed at the end of the request lifecycle.
-    async fn delete(&self, id: &str) -> SessionResult<()>;
+    async fn delete(&self, id: &str, cookie_jar: &CookieJar) -> SessionResult<()>;
 
     /// Optional callback when there's a pending change to the session data. A `data` value
     /// of `None` indicates a deleted session. This callback can be used by cookie-based
@@ -80,4 +80,67 @@ where
     async fn shutdown(&self) -> SessionResult<()> {
         Ok(()) // Default no-op
     }
+}
+
+/// Optional trait for session data types that can be grouped by an identifier.
+/// This enables features like retrieving all sessions for a user or invalidating
+/// all sessions when a user's password changes.
+///
+/// The identifier should be stable for the lifetime of a session - it should not
+/// change while the session is active.
+///
+/// # Example
+/// ```rust
+/// use rocket_flex_session::storage::SessionIdentifier;
+///
+/// #[derive(Clone)]
+/// struct MySession {
+///     user_id: String,
+///     role: String,
+/// }
+///
+/// impl SessionIdentifier for MySession {
+///     type Id = String;
+///
+///     fn identifier(&self) -> Option<Self::Id> {
+///         Some(self.user_id.clone())
+///     }
+/// }
+/// ```
+pub trait SessionIdentifier {
+    /// The type of the identifier (e.g., user ID, account ID, etc.)
+    type Id: Send + Sync;
+
+    /// Extract the identifier from the session data.
+    /// Returns `None` if the session doesn't have an identifier or
+    /// shouldn't be indexed.
+    fn identifier(&self) -> Option<&Self::Id>;
+}
+
+/// Extended trait for storage backends that support session indexing by identifier.
+/// This allows operations like finding all sessions for a user or bulk invalidation.
+///
+/// Not all storage backends support this - for example, cookie-based storage
+/// cannot implement this trait since cookies are only persisted on the client-side.
+pub trait IndexedSessionStorage<T>: SessionStorage<T>
+where
+    T: SessionIdentifier + Send + Sync,
+{
+    /// Retrieve all session data for the given identifier.
+    fn get_sessions_by_identifier(
+        &self,
+        id: &T::Id,
+    ) -> impl std::future::Future<Output = SessionResult<Vec<T>>>;
+
+    /// Get all session IDs associated with the given identifier.
+    fn get_session_ids_by_identifier(
+        &self,
+        id: &T::Id,
+    ) -> impl std::future::Future<Output = SessionResult<Vec<String>>>;
+
+    /// Remove all sessions associated with the given identifier.
+    fn invalidate_sessions_by_identifier(
+        &self,
+        id: &T::Id,
+    ) -> impl std::future::Future<Output = SessionResult<()>>;
 }

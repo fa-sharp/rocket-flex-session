@@ -41,7 +41,7 @@ where
 
         // Handle deleted session
         if let Some(deleted_id) = deleted {
-            let delete_result = self.storage.delete(&deleted_id).await;
+            let delete_result = self.storage.delete(&deleted_id, req.cookies()).await;
             if let Err(e) = delete_result {
                 rocket::error!("Error while deleting session '{}': {}", deleted_id, e);
             }

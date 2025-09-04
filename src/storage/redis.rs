@@ -150,7 +150,7 @@ where
         Ok(())
     }
 
-    async fn delete(&self, id: &str) -> SessionResult<()> {
+    async fn delete(&self, id: &str, _cookie_jar: &CookieJar) -> SessionResult<()> {
         let _: u8 = self.pool.del(self.key(id)).await?;
         Ok(())
     }
