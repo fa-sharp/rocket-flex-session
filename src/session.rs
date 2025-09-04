@@ -129,7 +129,7 @@ where
         response
     }
 
-    /// Set/update the session data. Will create a new active session if needed.
+    /// Set/update the session data. Will create a new active session if there isn't one.
     pub fn set(&mut self, new_data: T) {
         self.get_inner_lock()
             .set_data(new_data, self.get_default_ttl());
@@ -198,7 +198,7 @@ where
     fn update_cookies(&self) {
         let inner = self.get_inner_lock();
         let Some(id) = inner.get_id() else {
-            rocket::info!("Cookies not updated: no active session");
+            rocket::warn!("Cookies not updated: no active session");
             return;
         };
 
@@ -235,31 +235,42 @@ where
             .and_then(|h| h.get(key).cloned())
     }
 
-    /// Set the value of a key in the session data. Will create
-    /// a new session if needed.
-    pub fn set_key(&mut self, key: K, value: V) {
-        let mut new_data = self
+    /// Get the value of a key in the session data via a reference
+    pub fn tap_key<Q, F, R>(&self, key: &Q, f: F) -> R
+    where
+        Q: ?Sized + Eq + Hash,
+        K: std::borrow::Borrow<Q>,
+        F: FnOnce(Option<&V>) -> R,
+    {
+        f(self
             .get_inner_lock()
             .get_current_data()
-            .cloned()
-            .unwrap_or_default();
-        new_data.insert(key, value);
-        self.set(new_data);
+            .and_then(|d| d.get(key)))
     }
 
-    /// Set multiple keys and values in the session data. Will create
-    /// a new session if needed.
+    /// Set the value of a key in the session data. Will create a new session if there isn't one.
+    pub fn set_key(&mut self, key: K, value: V) {
+        self.get_inner_lock().tap_data_mut(
+            |data| {
+                data.get_or_insert_default().insert(key, value);
+            },
+            self.get_default_ttl(),
+        );
+        self.update_cookies();
+    }
+
+    /// Set multiple keys and values in the session data. Will create a new session if there isn't one.
     pub fn set_keys<I>(&mut self, kv_iter: I)
     where
         I: IntoIterator<Item = (K, V)>,
     {
-        let mut new_data = self
-            .get_inner_lock()
-            .get_current_data()
-            .cloned()
-            .unwrap_or_default();
-        new_data.extend(kv_iter);
-        self.set(new_data);
+        self.get_inner_lock().tap_data_mut(
+            |data| {
+                data.get_or_insert_default().extend(kv_iter);
+            },
+            self.get_default_ttl(),
+        );
+        self.update_cookies();
     }
 }
 
