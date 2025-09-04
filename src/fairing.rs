@@ -1,6 +1,6 @@
 use std::{
     marker::{Send, Sync},
-    sync::Arc,
+    sync::Mutex,
 };
 
 use rocket::{fairing::Fairing, Build, Orbit, Request, Response, Rocket};
@@ -34,7 +34,8 @@ where
 
     async fn on_response<'r>(&self, req: &'r Request<'_>, _res: &mut Response<'r>) {
         // Get session data from request local cache, or generate a default empty one
-        let (session_inner, _): &LocalCachedSession<T> = req.local_cache(|| (Arc::default(), None));
+        let (session_inner, _): &LocalCachedSession<T> =
+            req.local_cache(|| (Mutex::default(), None));
 
         // Take inner session data
         let (updated, deleted) = session_inner.lock().unwrap().take_for_storage();

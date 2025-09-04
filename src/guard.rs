@@ -1,7 +1,4 @@
-use std::{
-    any::type_name,
-    sync::{Arc, Mutex},
-};
+use std::{any::type_name, sync::Mutex};
 
 use rocket::{
     http::{Cookie, CookieJar},
@@ -15,7 +12,7 @@ use crate::{
 };
 
 /// Type of the cached inner session data in Rocket's request local cache
-pub(crate) type LocalCachedSession<T> = (Arc<Mutex<SessionInner<T>>>, Option<SessionError>);
+pub(crate) type LocalCachedSession<T> = (Mutex<SessionInner<T>>, Option<SessionError>);
 
 #[rocket::async_trait]
 impl<'r, T> FromRequest<'r> for Session<'r, T>
@@ -46,7 +43,7 @@ where
             .await;
 
         Outcome::Success(Session::new(
-            cached_inner.as_ref(),
+            cached_inner,
             session_error.as_ref(),
             cookie_jar,
             &fairing.options,
@@ -84,16 +81,16 @@ async fn get_session_data<'r, T: Send + Sync + Clone>(
             Ok((data, ttl)) => {
                 rocket::debug!("Session found. Creating existing session...");
                 let session_inner = SessionInner::new_existing(id, data, ttl);
-                (Arc::new(Mutex::new(session_inner)), None)
+                (Mutex::new(session_inner), None)
             }
             Err(e) => {
                 rocket::debug!("Error from session storage, creating empty session: {}", e);
-                (Arc::default(), Some(e))
+                (Mutex::default(), Some(e))
             }
         }
     } else {
         rocket::debug!("No valid session cookie found. Creating empty session...");
-        (Arc::default(), Some(SessionError::NoSessionCookie))
+        (Mutex::default(), Some(SessionError::NoSessionCookie))
     }
 }
 
