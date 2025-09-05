@@ -33,3 +33,13 @@ pub async fn setup_postgres(base_url: &str) -> (PgPool, String) {
 
     (pool, db_name)
 }
+
+pub async fn teardown_postgres(pool: sqlx::Pool<sqlx::Postgres>, db_name: String) {
+    pool.close().await;
+    drop(pool);
+    let mut cxn = sqlx::PgConnection::connect(POSTGRES_URL).await.unwrap();
+    sqlx::query(&format!("DROP DATABASE {} WITH (FORCE)", db_name))
+        .execute(&mut cxn)
+        .await
+        .expect("Should drop test database");
+}

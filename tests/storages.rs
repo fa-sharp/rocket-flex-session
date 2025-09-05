@@ -6,7 +6,10 @@ extern crate rocket;
 use std::{future::Future, pin::Pin};
 
 use fred::prelude::{ClientLike, ReconnectPolicy};
-use rocket::{http::Status, local::asynchronous::Client, tokio::time::sleep, Build, Rocket};
+use rocket::{
+    futures::FutureExt, http::Status, local::asynchronous::Client, tokio::time::sleep, Build,
+    Rocket,
+};
 use rocket_flex_session::{
     error::SessionError,
     storage::{
@@ -17,10 +20,9 @@ use rocket_flex_session::{
     RocketFlexSession, Session, SessionIdentifier,
 };
 use serde::{Deserialize, Serialize};
-use sqlx::Connection;
 use test_case::test_case;
 
-use crate::common::{setup_postgres, POSTGRES_URL};
+use crate::common::{setup_postgres, teardown_postgres, POSTGRES_URL};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 struct SessionData {
@@ -93,7 +95,10 @@ fn expire_session(mut session: Session<SessionData>) {
 
 async fn create_rocket(
     storage_case: &str,
-) -> (Rocket<Build>, Option<Pin<Box<dyn Future<Output = ()>>>>) {
+) -> (
+    Rocket<Build>,
+    Option<Pin<Box<dyn Future<Output = ()> + Send>>>,
+) {
     let (fairing, cleanup_task) = match storage_case {
         "cookie" => (
             RocketFlexSession::<SessionData>::builder()
@@ -114,29 +119,19 @@ async fn create_rocket(
             let fairing = RocketFlexSession::<SessionData>::builder()
                 .storage(storage)
                 .build();
-
-            let cleanup_task: Pin<Box<dyn Future<Output = ()>>> = Box::pin(async move {
+            let cleanup_task = async move {
                 pool.quit().await.ok();
-                drop(pool);
-            });
+            }
+            .boxed();
             (fairing, Some(cleanup_task))
         }
         "sqlx" => {
             let (pool, db_name) = setup_postgres(POSTGRES_URL).await;
-            let storage = SqlxPostgresStorage::new(pool.clone(), "sessions");
+            let storage = SqlxPostgresStorage::new(pool.clone(), "sessions", None);
             let fairing = RocketFlexSession::<SessionData>::builder()
                 .storage(storage)
                 .build();
-
-            let cleanup_task: Pin<Box<dyn Future<Output = ()>>> = Box::pin(async move {
-                pool.close().await;
-                drop(pool);
-                let mut cxn = sqlx::PgConnection::connect(POSTGRES_URL).await.unwrap();
-                sqlx::query(&format!("DROP DATABASE {} WITH (FORCE)", db_name))
-                    .execute(&mut cxn)
-                    .await
-                    .expect("Should drop test database");
-            });
+            let cleanup_task = teardown_postgres(pool, db_name).boxed();
             (fairing, Some(cleanup_task))
         }
         _ => unimplemented!(),

@@ -26,6 +26,9 @@ pub enum SessionError {
     /// used when implementing a custom session storage.
     #[error("Storage backend error: {0}")]
     Backend(Box<dyn std::error::Error + Send + Sync>),
+    /// Error occurred while setting up or tearing down the session storage
+    #[error("Error during storage setup or teardown: {0}")]
+    SetupTeardown(String),
 
     #[cfg(feature = "redis_fred")]
     #[error("fred.rs client error: {0}")]

@@ -2,15 +2,14 @@ mod common;
 
 use std::{future::Future, pin::Pin};
 
-use rocket::local::asynchronous::Client;
+use rocket::{futures::FutureExt, local::asynchronous::Client};
 use rocket_flex_session::{
     storage::{memory::MemoryStorageIndexed, sqlx::SqlxPostgresStorage, SessionStorageIndexed},
     SessionIdentifier,
 };
-use sqlx::Connection;
 use test_case::test_case;
 
-use crate::common::{setup_postgres, POSTGRES_URL};
+use crate::common::{setup_postgres, teardown_postgres, POSTGRES_URL};
 
 #[derive(Clone, Debug, PartialEq)]
 struct TestSession {
@@ -57,17 +56,8 @@ async fn create_storage(
         }
         "sqlx" => {
             let (pool, db_name) = setup_postgres(POSTGRES_URL).await;
-            let storage = SqlxPostgresStorage::new(pool.clone(), "sessions");
-
-            let cleanup_task: Pin<Box<dyn Future<Output = ()>>> = Box::pin(async move {
-                pool.close().await;
-                drop(pool);
-                let mut cxn = sqlx::PgConnection::connect(POSTGRES_URL).await.unwrap();
-                sqlx::query(&format!("DROP DATABASE {} WITH (FORCE)", db_name))
-                    .execute(&mut cxn)
-                    .await
-                    .expect("Should drop test database");
-            });
+            let storage = SqlxPostgresStorage::new(pool.clone(), "sessions", None);
+            let cleanup_task = teardown_postgres(pool, db_name).boxed();
             (Box::new(storage), Some(cleanup_task))
         }
         _ => unimplemented!(),
