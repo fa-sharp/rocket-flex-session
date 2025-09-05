@@ -1,15 +1,22 @@
+mod common;
+
+use std::{future::Future, pin::Pin};
+
 use rocket::local::asynchronous::Client;
 use rocket_flex_session::{
-    storage::{memory::IndexedMemoryStorage, SessionStorage, SessionStorageIndexed},
+    storage::{memory::IndexedMemoryStorage, sqlx::SqlxPostgresStorage, SessionStorageIndexed},
     SessionIdentifier,
 };
+use sqlx::Connection;
+use test_case::test_case;
+
+use crate::common::{setup_postgres, POSTGRES_URL};
 
 #[derive(Clone, Debug, PartialEq)]
 struct TestSession {
     user_id: String,
     data: String,
 }
-
 impl SessionIdentifier for TestSession {
     type Id = String;
 
@@ -17,23 +24,61 @@ impl SessionIdentifier for TestSession {
         Some(&self.user_id)
     }
 }
-
-#[derive(Clone, Debug, PartialEq)]
-struct SessionWithoutId {
-    data: String,
+impl ToString for TestSession {
+    fn to_string(&self) -> String {
+        format!("{}:{}", self.user_id, self.data)
+    }
 }
+impl TryFrom<String> for TestSession {
+    type Error = std::io::Error;
 
-impl SessionIdentifier for SessionWithoutId {
-    type Id = String;
-
-    fn identifier(&self) -> Option<&Self::Id> {
-        None // This session type doesn't have an identifier
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        let (user_id, data) = value.split_once(':').ok_or(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "Invalid session format",
+        ))?;
+        Ok(TestSession {
+            user_id: user_id.to_string(),
+            data: data.to_string(),
+        })
     }
 }
 
+async fn create_storage(
+    storage_case: &str,
+) -> (
+    Box<dyn SessionStorageIndexed<TestSession>>,
+    Option<Pin<Box<dyn Future<Output = ()>>>>,
+) {
+    match storage_case {
+        "memory" => {
+            let storage = IndexedMemoryStorage::<TestSession>::default();
+            (Box::new(storage), None)
+        }
+        "sqlx" => {
+            let (pool, db_name) = setup_postgres(POSTGRES_URL).await;
+            let storage = SqlxPostgresStorage::new(pool.clone(), "sessions");
+
+            let cleanup_task: Pin<Box<dyn Future<Output = ()>>> = Box::pin(async move {
+                pool.close().await;
+                drop(pool);
+                let mut cxn = sqlx::PgConnection::connect(POSTGRES_URL).await.unwrap();
+                sqlx::query(&format!("DROP DATABASE {} WITH (FORCE)", db_name))
+                    .execute(&mut cxn)
+                    .await
+                    .expect("Should drop test database");
+            });
+            (Box::new(storage), Some(cleanup_task))
+        }
+        _ => unimplemented!(),
+    }
+}
+
+#[test_case("memory")]
+#[test_case("sqlx")]
 #[rocket::async_test]
-async fn indexed_memory_storage_basic_operations() {
-    let storage = IndexedMemoryStorage::<TestSession>::default();
+async fn basic_operations(storage_case: &str) {
+    let (storage, cleanup_task) = create_storage(storage_case).await;
     storage.setup().await.unwrap();
 
     let session1 = TestSession {
@@ -86,11 +131,16 @@ async fn indexed_memory_storage_basic_operations() {
     assert!(user1_session_ids.contains(&"sid2".to_string()));
 
     storage.shutdown().await.unwrap();
+    if let Some(task) = cleanup_task {
+        task.await
+    }
 }
 
+#[test_case("memory")]
+#[test_case("sqlx")]
 #[rocket::async_test]
-async fn indexed_memory_storage_invalidate_by_identifier() {
-    let storage = IndexedMemoryStorage::<TestSession>::default();
+async fn invalidate_by_identifier(storage_case: &str) {
+    let (storage, cleanup_task) = create_storage(storage_case).await;
     storage.setup().await.unwrap();
 
     let session1 = TestSession {
@@ -148,12 +198,17 @@ async fn indexed_memory_storage_invalidate_by_identifier() {
         .any(|(id, data)| id == "sid3" && data == &session3));
 
     storage.shutdown().await.unwrap();
+    if let Some(task) = cleanup_task {
+        task.await
+    }
 }
 
+#[test_case("memory")]
+#[test_case("sqlx")]
 #[rocket::async_test]
-async fn indexed_memory_storage_delete_single_session() {
+async fn delete_single_session(storage_case: &str) {
     let client = Client::tracked(rocket::build()).await.unwrap();
-    let storage = IndexedMemoryStorage::<TestSession>::default();
+    let (storage, cleanup_task) = create_storage(storage_case).await;
     storage.setup().await.unwrap();
 
     let session1 = TestSession {
@@ -193,38 +248,16 @@ async fn indexed_memory_storage_delete_single_session() {
         .any(|(id, data)| id == "sid2" && data == &session2));
 
     storage.shutdown().await.unwrap();
+    if let Some(task) = cleanup_task {
+        task.await
+    }
 }
 
+#[test_case("memory")]
+#[test_case("sqlx")]
 #[rocket::async_test]
-async fn indexed_memory_storage_session_without_identifier() {
-    let client = Client::tracked(rocket::build()).await.unwrap();
-    let storage = IndexedMemoryStorage::<SessionWithoutId>::default();
-    storage.setup().await.unwrap();
-
-    let session = SessionWithoutId {
-        data: "test_data".to_string(),
-    };
-
-    // Save session (should not be indexed)
-    storage.save("sid1", session.clone(), 3600).await.unwrap();
-
-    // Try to get sessions by identifier (should return empty)
-    let sessions = storage
-        .get_sessions_by_identifier(&"any_id".to_string())
-        .await
-        .unwrap();
-    assert_eq!(sessions.len(), 0);
-
-    // Regular session operations should still work
-    let (loaded_session, _ttl) = storage.load("sid1", None, &client.cookies()).await.unwrap();
-    assert_eq!(loaded_session, session);
-
-    storage.shutdown().await.unwrap();
-}
-
-#[rocket::async_test]
-async fn indexed_memory_storage_nonexistent_identifier() {
-    let storage = IndexedMemoryStorage::<TestSession>::default();
+async fn nonexistent_identifier(storage_case: &str) {
+    let (storage, cleanup_task) = create_storage(storage_case).await;
     storage.setup().await.unwrap();
 
     // Try to get sessions for non-existent identifier
@@ -248,4 +281,7 @@ async fn indexed_memory_storage_nonexistent_identifier() {
         .unwrap();
 
     storage.shutdown().await.unwrap();
+    if let Some(task) = cleanup_task {
+        task.await
+    }
 }

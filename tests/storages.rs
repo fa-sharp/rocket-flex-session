@@ -1,3 +1,5 @@
+mod common;
+
 #[macro_use]
 extern crate rocket;
 
@@ -12,13 +14,13 @@ use rocket_flex_session::{
         redis::{RedisFredStorage, RedisType},
         sqlx::SqlxPostgresStorage,
     },
-    RocketFlexSession, Session,
+    RocketFlexSession, Session, SessionIdentifier,
 };
 use serde::{Deserialize, Serialize};
-use sqlx::{Connection, PgPool};
+use sqlx::Connection;
 use test_case::test_case;
 
-const POSTGRES_URL: &str = "postgres://postgres:postgres@localhost";
+use crate::common::{setup_postgres, POSTGRES_URL};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 struct SessionData {
@@ -30,9 +32,9 @@ impl TryFrom<String> for SessionData {
         Ok(Self { user_id: value })
     }
 }
-impl From<SessionData> for String {
-    fn from(value: SessionData) -> Self {
-        value.user_id
+impl std::fmt::Display for SessionData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.user_id)
     }
 }
 impl TryFrom<fred::types::Value> for SessionData {
@@ -45,6 +47,13 @@ impl TryFrom<fred::types::Value> for SessionData {
 impl From<SessionData> for fred::types::Value {
     fn from(value: SessionData) -> Self {
         Self::String(value.user_id.into())
+    }
+}
+impl SessionIdentifier for SessionData {
+    const NAME: &str = "user_id";
+    type Id = String;
+    fn identifier(&self) -> Option<&Self::Id> {
+        Some(&self.user_id)
     }
 }
 
@@ -73,37 +82,6 @@ fn delete_session(mut session: Session<SessionData>) -> &'static str {
 #[post("/expire_session")]
 fn expire_session(mut session: Session<SessionData>) {
     session.set_ttl(1);
-}
-
-/// Setup a test Postgres database
-async fn setup_postgres(base_url: &str) -> (PgPool, String) {
-    let db_name = format!(
-        "test_{}",
-        (0..6)
-            .map(|_| (b'a' + (rand::random::<u8>() % 26)) as char)
-            .collect::<String>()
-    );
-    let mut cxn = sqlx::PgConnection::connect(base_url).await.unwrap();
-    sqlx::query(&format!("CREATE DATABASE {}", db_name))
-        .execute(&mut cxn)
-        .await
-        .expect("Should create test database");
-    let _ = cxn.close().await;
-
-    let db_url = format!("{}/{}", base_url, db_name);
-    let pool = sqlx::PgPool::connect(&db_url).await.unwrap();
-    sqlx::query(
-        r#"CREATE TABLE IF NOT EXISTS sessions (
-          id      TEXT PRIMARY KEY,
-          data    TEXT NOT NULL,
-          expires TIMESTAMPTZ NOT NULL
-      )"#,
-    )
-    .execute(&pool)
-    .await
-    .expect("Should create sessions table");
-
-    (pool, db_name)
 }
 
 async fn create_rocket(

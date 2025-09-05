@@ -41,7 +41,7 @@ fn delete_session(mut session: Session<User>) -> &'static str {
 #[get("/get_hash_session/<key>")]
 fn get_hash_session(session: Session<HashMap<String, String>>, key: &str) -> String {
     match session.get_key(key) {
-        Some(value) => value.clone(),
+        Some(value) => value,
         None => "No value".to_string(),
     }
 }

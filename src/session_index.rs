@@ -27,7 +27,7 @@ use crate::{error::SessionError, storage::SessionStorageIndexed, Session};
 /// }
 /// ```
 pub trait SessionIdentifier {
-    /// The name of the identifier (default: "user_id")
+    /// The name of the identifier (default: `"user_id"`), that may be used as a field/key name by the storage backend.
     const NAME: &str = "user_id";
 
     /// The type of the identifier
@@ -113,7 +113,7 @@ where
     fn get_identifier(&self) -> Option<T::Id> {
         let identifier = {
             let inner = self.get_inner_lock();
-            inner.get_current_identifier()
+            inner.get_current_identifier().cloned()
         };
         identifier
     }

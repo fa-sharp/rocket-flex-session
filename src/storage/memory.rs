@@ -27,7 +27,7 @@ use super::interface::{SessionStorage, SessionStorageIndexed};
 /// For session indexing support, see [`IndexedMemoryStorage`].
 pub struct MemoryStorage<T> {
     shutdown_tx: Mutex<Option<oneshot::Sender<()>>>,
-    pub(crate) cache: Arc<Cache<String, T>>,
+    cache: Arc<Cache<String, T>>,
 }
 
 impl<T> Default for MemoryStorage<T> {
@@ -62,10 +62,8 @@ where
                 )
                 .await;
         }
-        Ok((
-            data.to_owned(),
-            ttl.unwrap_or(data.expiration().remaining().unwrap().as_secs() as u32),
-        ))
+        let ttl = ttl.unwrap_or(data.expiration().remaining().unwrap().as_secs() as u32);
+        Ok((data.to_owned(), ttl))
     }
 
     async fn save(&self, id: &str, data: T, ttl: u32) -> SessionResult<()> {
@@ -114,8 +112,8 @@ impl<T> MemoryStorage<T> {
 /// This allows for operations like retrieving all sessions for a user or
 /// bulk invalidation of sessions.
 ///
-/// Unlike [`MemoryStorage`], this implementation maintains an index mapping
-/// identifiers to session IDs, enabling efficient lookups and bulk operations.
+/// You must implement the [`SessionIdentifier`] trait for your session type,
+/// and the [`SessionIdentifier::Id`] type must implement [`ToString`].
 ///
 /// # Example
 /// ```rust
@@ -152,7 +150,7 @@ where
 impl<T> Default for IndexedMemoryStorage<T>
 where
     T: SessionIdentifier,
-    T::Id: ToString,
+    <T as SessionIdentifier>::Id: ToString,
 {
     fn default() -> Self {
         Self {
