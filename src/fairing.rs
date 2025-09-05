@@ -33,7 +33,7 @@ struct MySession {
 
 #[rocket::launch]
 fn rocket() -> _ {
-    // Use default settings
+    // Use default settings with in-memory storage
     let session_fairing = RocketFlexSession::<MySession>::default();
 
     // Or customize settings with the builder

@@ -68,18 +68,18 @@ where
         Ok(Some(session_ids))
     }
 
-    /// Invalidate all sessions with the same identifier as the current session.
+    /// Invalidate all sessions with the same identifier as the current session, returning the number of sessions invalidated.
     /// Returns `None` if there's no session or the session isn't indexed.
-    pub async fn invalidate_all_sessions(&self) -> Result<Option<()>, SessionError> {
+    pub async fn invalidate_all_sessions(&self) -> Result<Option<u64>, SessionError> {
         let Some(identifier) = self.get_identifier() else {
             return Ok(None);
         };
         let storage = self.get_indexed_storage()?;
-        storage
+        let num_sessions = storage
             .invalidate_sessions_by_identifier(&identifier)
             .await?;
 
-        Ok(Some(()))
+        Ok(Some(num_sessions))
     }
 
     /// Get all session IDs and data for a specific identifier.
@@ -100,11 +100,11 @@ where
         storage.get_session_ids_by_identifier(identifier).await
     }
 
-    /// Invalidate all sessions for a specific identifier.
+    /// Invalidate all sessions for a specific identifier, returning the number of sessions invalidated.
     pub async fn invalidate_sessions_by_identifier(
         &self,
         identifier: &T::Id,
-    ) -> Result<(), SessionError> {
+    ) -> Result<u64, SessionError> {
         let storage = self.get_indexed_storage()?;
         storage.invalidate_sessions_by_identifier(identifier).await
     }

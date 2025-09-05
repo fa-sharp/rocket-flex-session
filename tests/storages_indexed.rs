@@ -64,8 +64,8 @@ async fn create_storage(
     }
 }
 
-#[test_case("memory")]
-#[test_case("sqlx")]
+#[test_case("memory"; "Memory")]
+#[test_case("sqlx"; "Sqlx Postgres")]
 #[rocket::async_test]
 async fn basic_operations(storage_case: &str) {
     let (storage, cleanup_task) = create_storage(storage_case).await;
@@ -126,8 +126,8 @@ async fn basic_operations(storage_case: &str) {
     }
 }
 
-#[test_case("memory")]
-#[test_case("sqlx")]
+#[test_case("memory"; "Memory")]
+#[test_case("sqlx"; "Sqlx Postgres")]
 #[rocket::async_test]
 async fn invalidate_by_identifier(storage_case: &str) {
     let (storage, cleanup_task) = create_storage(storage_case).await;
@@ -162,10 +162,13 @@ async fn invalidate_by_identifier(storage_case: &str) {
     );
 
     // Invalidate all sessions for user1
-    storage
-        .invalidate_sessions_by_identifier(&"user1".to_string())
-        .await
-        .unwrap();
+    assert_eq!(
+        storage
+            .invalidate_sessions_by_identifier(&"user1".to_string())
+            .await
+            .unwrap(),
+        2
+    );
 
     // Verify user1 sessions are gone
     assert_eq!(
@@ -193,8 +196,8 @@ async fn invalidate_by_identifier(storage_case: &str) {
     }
 }
 
-#[test_case("memory")]
-#[test_case("sqlx")]
+#[test_case("memory"; "Memory")]
+#[test_case("sqlx"; "Sqlx Postgres")]
 #[rocket::async_test]
 async fn delete_single_session(storage_case: &str) {
     let client = Client::tracked(rocket::build()).await.unwrap();
@@ -243,8 +246,8 @@ async fn delete_single_session(storage_case: &str) {
     }
 }
 
-#[test_case("memory")]
-#[test_case("sqlx")]
+#[test_case("memory"; "Memory")]
+#[test_case("sqlx"; "Sqlx Postgres")]
 #[rocket::async_test]
 async fn nonexistent_identifier(storage_case: &str) {
     let (storage, cleanup_task) = create_storage(storage_case).await;
@@ -265,10 +268,13 @@ async fn nonexistent_identifier(storage_case: &str) {
     assert_eq!(session_ids.len(), 0);
 
     // Try to invalidate sessions for non-existent identifier (should not error)
-    storage
-        .invalidate_sessions_by_identifier(&"nonexistent".to_string())
-        .await
-        .unwrap();
+    assert_eq!(
+        storage
+            .invalidate_sessions_by_identifier(&"nonexistent".to_string())
+            .await
+            .unwrap(),
+        0
+    );
 
     storage.shutdown().await.unwrap();
     if let Some(task) = cleanup_task {

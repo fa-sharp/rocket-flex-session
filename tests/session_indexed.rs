@@ -1,6 +1,7 @@
 use rocket::{
-    get, launch, routes,
+    get, routes,
     serde::{Deserialize, Serialize},
+    Build, Rocket,
 };
 use rocket_flex_session::{
     storage::memory::MemoryStorageIndexed, RocketFlexSession, Session, SessionIdentifier,
@@ -62,7 +63,7 @@ async fn get_user_sessions(session: Session<'_, UserSession>) -> String {
             format!("Found {} sessions for current user", sessions.len())
         }
         Ok(None) => "No current session".to_string(),
-        Err(e) => format!("Error getting sessions: {}", e),
+        Err(e) => format!("Error getting sessions: {e}"),
     }
 }
 
@@ -70,18 +71,18 @@ async fn get_user_sessions(session: Session<'_, UserSession>) -> String {
 async fn get_sessions_for_user(session: Session<'_, UserSession>, user_id: String) -> String {
     match session.get_sessions_by_identifier(&user_id).await {
         Ok(sessions) => {
-            format!("Sessions for user {}: {:?}", user_id, sessions)
+            format!("Sessions for user {user_id}: {:?}", sessions)
         }
-        Err(e) => format!("Error getting sessions: {}", e),
+        Err(e) => format!("Error getting sessions: {e}"),
     }
 }
 
 #[get("/user/invalidate-all")]
 async fn invalidate_all_user_sessions(session: Session<'_, UserSession>) -> String {
     match session.invalidate_all_sessions().await {
-        Ok(Some(())) => "All sessions for current user invalidated".to_string(),
+        Ok(Some(n)) => format!("{n} session(s) for current user invalidated."),
         Ok(None) => "No current session".to_string(),
-        Err(e) => format!("Error invalidating sessions: {}", e),
+        Err(e) => format!("Error invalidating sessions: {e}"),
     }
 }
 
@@ -91,8 +92,8 @@ async fn invalidate_sessions_for_user(
     user_id: String,
 ) -> String {
     match session.invalidate_sessions_by_identifier(&user_id).await {
-        Ok(()) => format!("All sessions for user {} invalidated", user_id),
-        Err(e) => format!("Error invalidating sessions: {}", e),
+        Ok(n) => format!("{n} session(s) for user {user_id} invalidated"),
+        Err(e) => format!("Error invalidating sessions: {e}"),
     }
 }
 
@@ -103,7 +104,7 @@ async fn get_user_session_ids(session: Session<'_, UserSession>) -> String {
             format!("Session IDs for current user: {:?}", session_ids)
         }
         Ok(None) => "No current session".to_string(),
-        Err(e) => format!("Error getting session IDs: {}", e),
+        Err(e) => format!("Error getting session IDs: {e}"),
     }
 }
 
@@ -120,8 +121,7 @@ async fn user_profile(session: Session<'_, UserSession>) -> String {
     }
 }
 
-#[launch]
-fn rocket() -> _ {
+fn rocket() -> Rocket<Build> {
     let user_storage = MemoryStorageIndexed::<UserSession>::default();
 
     rocket::build()
@@ -199,7 +199,6 @@ mod tests {
         let response = client.get("/user/sessions/user1").dispatch();
         assert_eq!(response.status(), Status::Ok);
         let body = response.into_string().unwrap();
-        println!("{body}");
         assert!(body.contains("Sessions for user user1"));
     }
 
@@ -232,7 +231,7 @@ mod tests {
         assert!(response
             .into_string()
             .unwrap()
-            .contains("All sessions for current user invalidated"));
+            .contains("1 session(s) for current user invalidated"));
 
         // Profile should now show no session
         let response = client.get("/user/profile").dispatch();
@@ -254,7 +253,7 @@ mod tests {
         assert!(response
             .into_string()
             .unwrap()
-            .contains("All sessions for user user2 invalidated"));
+            .contains("1 session(s) for user user2 invalidated"));
     }
 
     #[test]

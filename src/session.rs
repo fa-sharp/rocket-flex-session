@@ -18,7 +18,7 @@ use crate::{
 /**
 Represents the current session state. When used as a request guard, it will
 attempt to retrieve the session. The request guard will always succeed - if a
-valid session wasn't found, `session.get()` will return `None` indicating an
+valid session wasn't found, the data functions will return `None` indicating an
 inactive session.
 
 # Type Parameters

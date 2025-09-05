@@ -270,7 +270,7 @@ where
         Ok(session_ids.into_iter().collect())
     }
 
-    async fn invalidate_sessions_by_identifier(&self, id: &T::Id) -> SessionResult<()> {
+    async fn invalidate_sessions_by_identifier(&self, id: &T::Id) -> SessionResult<u64> {
         let id_str = id.to_string();
         let session_ids = {
             let mut index = self.identifier_index.lock().unwrap();
@@ -278,10 +278,10 @@ where
         };
 
         // Remove all sessions from cache
-        for session_id in session_ids {
-            self.base_storage.cache().remove(&session_id).await;
+        for session_id in &session_ids {
+            self.base_storage.cache().remove(session_id).await;
         }
 
-        Ok(())
+        Ok(session_ids.len() as u64)
     }
 }

@@ -68,12 +68,12 @@ pub trait SessionStorageIndexed<T>: SessionStorage<T>
 where
     T: SessionIdentifier + Send + Sync,
 {
-    /// Retrieve all session data for the given identifier.
+    /// Retrieve all session IDs and data for the given identifier.
     async fn get_sessions_by_identifier(&self, id: &T::Id) -> SessionResult<Vec<(String, T)>>;
 
     /// Get all session IDs associated with the given identifier.
     async fn get_session_ids_by_identifier(&self, id: &T::Id) -> SessionResult<Vec<String>>;
 
-    /// Remove all sessions associated with the given identifier.
-    async fn invalidate_sessions_by_identifier(&self, id: &T::Id) -> SessionResult<()>;
+    /// Remove all sessions associated with the given identifier. Returns the number of sessions removed.
+    async fn invalidate_sessions_by_identifier(&self, id: &T::Id) -> SessionResult<u64>;
 }

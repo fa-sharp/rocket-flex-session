@@ -258,8 +258,8 @@ where
         Ok(parsed_rows)
     }
 
-    async fn invalidate_sessions_by_identifier(&self, id: &T::Id) -> SessionResult<()> {
-        let _rows = sqlx::query(&format!(
+    async fn invalidate_sessions_by_identifier(&self, id: &T::Id) -> SessionResult<u64> {
+        let rows = sqlx::query(&format!(
             r#"
             DELETE FROM "{}"
             WHERE {} = $1"#,
@@ -270,6 +270,6 @@ where
         .execute(&self.pool)
         .await?;
 
-        Ok(())
+        Ok(rows.rows_affected())
     }
 }
