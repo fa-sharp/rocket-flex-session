@@ -130,7 +130,7 @@ provider that supports indexing, and then group sessions by an identifier (such 
 ```rust
 use rocket::routes;
 use rocket_flex_session::{Session, SessionIdentifier, RocketFlexSession};
-use rocket_flex_session::storage::memory::IndexedMemoryStorage;
+use rocket_flex_session::storage::memory::MemoryStorageIndexed;
 
 #[derive(Clone)]
 struct UserSession {
@@ -169,7 +169,7 @@ fn rocket() -> _ {
     rocket::build()
         .attach(
             RocketFlexSession::<UserSession>::builder()
-                .storage(IndexedMemoryStorage::default())
+                .storage(MemoryStorageIndexed::default())
                 .build()
         )
         .mount("/", routes![get_all_user_sessions, logout_everywhere])
@@ -185,7 +185,7 @@ This crate supports multiple storage backends with different capabilities:
 | Storage | Feature Flag | Indexing support | HashMap support | Use Cases |
 |---------|-------------|------------------|----------|----------|
 | [`storage::memory::MemoryStorage`] | Built-in | ❌ | ✅ | Development, testing |
-| [`storage::memory::IndexedMemoryStorage`] | Built-in | ✅ | ✅ | Development with indexing features |
+| [`storage::memory::MemoryStorageIndexed`] | Built-in | ✅ | ✅ | Development with indexing features |
 | [`storage::cookie::CookieStorage`] | `cookie` | ❌ | ✅ | Client-side storage, stateless servers |
 | [`storage::redis::RedisFredStorage`] | `redis_fred` | ❌ | ✅ | Production, distributed systems |
 | [`storage::sqlx::SqlxPostgresStorage`] | `sqlx_postgres` | ✅ | ❌ | Production, existing database |

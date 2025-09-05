@@ -24,7 +24,7 @@ use super::interface::{SessionStorage, SessionStorageIndexed};
 /// development, and not for production use. It uses the [retainer] crate to
 /// create an async cache.
 ///
-/// For session indexing support, see [`IndexedMemoryStorage`].
+/// For session indexing support, see [`MemoryStorageIndexed`].
 pub struct MemoryStorage<T> {
     shutdown_tx: Mutex<Option<oneshot::Sender<()>>>,
     cache: Arc<Cache<String, T>>,
@@ -117,7 +117,7 @@ impl<T> MemoryStorage<T> {
 ///
 /// # Example
 /// ```rust
-/// use rocket_flex_session::storage::memory::IndexedMemoryStorage;
+/// use rocket_flex_session::storage::memory::MemoryStorageIndexed;
 /// use rocket_flex_session::{SessionIdentifier, RocketFlexSession};
 ///
 /// #[derive(Clone)]
@@ -133,12 +133,12 @@ impl<T> MemoryStorage<T> {
 ///     }
 /// }
 ///
-/// let storage = IndexedMemoryStorage::<UserSession>::default();
+/// let storage = MemoryStorageIndexed::<UserSession>::default();
 /// let fairing = RocketFlexSession::builder()
 ///     .storage(storage)
 ///     .build();
 /// ```
-pub struct IndexedMemoryStorage<T>
+pub struct MemoryStorageIndexed<T>
 where
     T: SessionIdentifier,
 {
@@ -147,7 +147,7 @@ where
     identifier_index: Arc<Mutex<HashMap<String, HashSet<String>>>>,
 }
 
-impl<T> Default for IndexedMemoryStorage<T>
+impl<T> Default for MemoryStorageIndexed<T>
 where
     T: SessionIdentifier,
     <T as SessionIdentifier>::Id: ToString,
@@ -160,7 +160,7 @@ where
     }
 }
 
-impl<T> IndexedMemoryStorage<T>
+impl<T> MemoryStorageIndexed<T>
 where
     T: SessionIdentifier,
     T::Id: ToString,
@@ -192,7 +192,7 @@ where
 }
 
 #[async_trait]
-impl<T> SessionStorage<T> for IndexedMemoryStorage<T>
+impl<T> SessionStorage<T> for MemoryStorageIndexed<T>
 where
     T: SessionIdentifier + Clone + Send + Sync + 'static,
     T::Id: ToString,
@@ -238,7 +238,7 @@ where
 }
 
 #[async_trait]
-impl<T> SessionStorageIndexed<T> for IndexedMemoryStorage<T>
+impl<T> SessionStorageIndexed<T> for MemoryStorageIndexed<T>
 where
     Self: SessionStorage<T>,
     T: SessionIdentifier + Clone + Send + Sync,

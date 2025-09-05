@@ -4,7 +4,7 @@ use std::{future::Future, pin::Pin};
 
 use rocket::local::asynchronous::Client;
 use rocket_flex_session::{
-    storage::{memory::IndexedMemoryStorage, sqlx::SqlxPostgresStorage, SessionStorageIndexed},
+    storage::{memory::MemoryStorageIndexed, sqlx::SqlxPostgresStorage, SessionStorageIndexed},
     SessionIdentifier,
 };
 use sqlx::Connection;
@@ -52,7 +52,7 @@ async fn create_storage(
 ) {
     match storage_case {
         "memory" => {
-            let storage = IndexedMemoryStorage::<TestSession>::default();
+            let storage = MemoryStorageIndexed::<TestSession>::default();
             (Box::new(storage), None)
         }
         "sqlx" => {

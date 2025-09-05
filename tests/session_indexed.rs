@@ -3,7 +3,7 @@ use rocket::{
     serde::{Deserialize, Serialize},
 };
 use rocket_flex_session::{
-    storage::memory::IndexedMemoryStorage, RocketFlexSession, Session, SessionIdentifier,
+    storage::memory::MemoryStorageIndexed, RocketFlexSession, Session, SessionIdentifier,
 };
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -122,7 +122,7 @@ async fn user_profile(session: Session<'_, UserSession>) -> String {
 
 #[launch]
 fn rocket() -> _ {
-    let user_storage = IndexedMemoryStorage::<UserSession>::default();
+    let user_storage = MemoryStorageIndexed::<UserSession>::default();
 
     rocket::build()
         .attach(

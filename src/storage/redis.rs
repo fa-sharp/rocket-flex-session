@@ -22,8 +22,8 @@ Redis session storage using the [fred.rs](https://docs.rs/fred) crate.
 You can store the data as a Redis string or hash. Your session data type must implement [`FromValue`](https://docs.rs/fred/latest/fred/types/trait.FromValue.html)
 from the fred.rs crate, as well as the inverse `From<MyData>` or `TryFrom<MyData>` for [`Value`](https://docs.rs/fred/latest/fred/types/enum.Value.html) in order
 to dictate how the data will be converted to/from the Redis data type.
-- For `RedisType::String`, convert to/from `Value::String`
-- For `RedisType::Hash`, convert to/from `Value::Map`
+- For Redis string types, convert to/from `Value::String`
+- For Redis hash types, convert to/from `Value::Map`
 
 💡 Common hashmap types like `HashMap<String, String>` are automatically supported - make sure to use `RedisType::Hash`
 when constructing the storage to ensure they are properly converted and stored as Redis hashes.
@@ -50,6 +50,7 @@ async fn setup_storage() -> RedisFredStorage {
     storage
 }
 
+// If using a custom struct, implement the following...
 struct MySessionData {
     user_id: String,
 }
