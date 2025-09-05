@@ -235,7 +235,7 @@ where
             .and_then(|h| h.get(key).cloned())
     }
 
-    /// Get the value of a key in the session data via a reference
+    /// Get the value of a key in the session data via a closure
     pub fn tap_key<Q, F, R>(&self, key: &Q, f: F) -> R
     where
         Q: ?Sized + Eq + Hash,

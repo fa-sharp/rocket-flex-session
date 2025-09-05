@@ -13,11 +13,9 @@ use crate::{
 use super::interface::SessionStorage;
 
 /**
-Session store using PostgreSQL via [sqlx](https://docs.rs/crate/sqlx).
+Session store using PostgreSQL via [sqlx](https://docs.rs/crate/sqlx) that stores session data as a string, and supports session indexing.
 
-Stores the session data as a string, so you'll need to implement `ToString` (or Display)
-and `TryFrom<String>` for your session data type. This storage providers supports session
-indexing, so you'll also need to implement [`SessionIdentifier`](crate::SessionIdentifier),
+You'll need to implement `ToString` (or Display) and `TryFrom<String>` for your session data type. You'll also need to implement [`SessionIdentifier`],
 and its [`Id`](crate::SessionIdentifier::Id) must be a [type supported by sqlx](https://docs.rs/sqlx/latest/sqlx/postgres/types/index.html).
 Expects a table to already exist with the following columns:
 
@@ -25,7 +23,7 @@ Expects a table to already exist with the following columns:
 |------|---------|
 | id   | `text` PRIMARY KEY |
 | data | `text` NOT NULL (or `jsonb` if using JSON) |
-| `<session identifier name>` | `<type>` (this should match the [`SessionIdentifier`](crate::SessionIdentifier) |
+| `<session identifier name>` | `<type>` (the name and type should match the [`SessionIdentifier`] impl) |
 | expires | `timestamptz` NOT NULL |
 */
 pub struct SqlxPostgresStorage {

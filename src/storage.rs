@@ -12,8 +12,7 @@
 //! - Bulk invalidation of sessions (e.g., "log out everywhere")
 //! - Security auditing and monitoring
 //!
-//! To use indexing, your session type must implement [`crate::SessionIdentifier`] and you
-//! must use a storage backend that implements [`SessionStorageIndexed`].
+//! To use indexing, your session type must implement [`crate::SessionIdentifier`].
 //!
 //! ## Custom Storage
 //!

@@ -32,6 +32,13 @@ impl TryFrom<String> for SessionData {
         Ok(Self { user_id: value })
     }
 }
+impl fred::types::FromValue for SessionData {
+    fn from_value(value: fred::prelude::Value) -> Result<Self, fred::prelude::Error> {
+        Ok(Self {
+            user_id: value.convert()?,
+        })
+    }
+}
 impl std::fmt::Display for SessionData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.user_id)

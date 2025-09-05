@@ -14,7 +14,7 @@ Simple, extensible session library for Rocket applications.
   call will be made to get the session data, and if the session is updated multiple times
   during the request, only one call will be made at the end of the request to save the session.
 - Multiple storage providers available, or you can
-  use your own session storage by implementing the (`SessionStorage`)[crate::storage::SessionStorage] trait.
+  use your own session storage by implementing the [`SessionStorage`](crate::storage::SessionStorage) trait.
 - Optional session indexing support for advanced features like multi-device login tracking,
   bulk session invalidation, and security auditing.
 
@@ -104,8 +104,8 @@ For more info and examples of this powerful pattern, please see Rocket's documen
 
 ## HashMap session data
 
-Instead of a custom struct, you can use a [HashMap](std::collections::HashMap) as your Session data type. This is
-particularly useful if you expect your session data structure to be inconsistent and/or change frequently.
+Instead of a custom struct, you can use a [HashMap](std::collections::HashMap) as your Session data type if the
+storage provider supports it. This is particularly useful if you expect your session data structure to be inconsistent and/or change frequently.
 When using a HashMap, there are [some additional helper functions](file:///Users/farshad/Projects/pg-user-manager/api/target/doc/rocket_flex_session/struct.Session.html#method.get_key)
 to read and set keys.
 
@@ -182,15 +182,14 @@ This crate supports multiple storage backends with different capabilities:
 
 ## Available Storage Providers
 
-| Storage | Feature Flag | Indexing Support | Use Case |
-|---------|-------------|------------------|----------|
-| [`storage::memory::MemoryStorage`] | Built-in | ❌ | Development, testing |
-| [`storage::memory::IndexedMemoryStorage`] | Built-in | ✅ | Development with indexing features |
-| [`storage::cookie::CookieStorage`] | `cookie` | ❌ | Client-side storage, stateless servers |
-| [`storage::redis::RedisFredStorage`] | `redis_fred` | ❌ | Production, distributed systems |
-| [`storage::sqlx::SqlxPostgresStorage`] | `sqlx_postgres` | ✅* | Production, existing database |
+| Storage | Feature Flag | Indexing support | HashMap support | Use Cases |
+|---------|-------------|------------------|----------|----------|
+| [`storage::memory::MemoryStorage`] | Built-in | ❌ | ✅ | Development, testing |
+| [`storage::memory::IndexedMemoryStorage`] | Built-in | ✅ | ✅ | Development with indexing features |
+| [`storage::cookie::CookieStorage`] | `cookie` | ❌ | ✅ | Client-side storage, stateless servers |
+| [`storage::redis::RedisFredStorage`] | `redis_fred` | ❌ | ✅ | Production, distributed systems |
+| [`storage::sqlx::SqlxPostgresStorage`] | `sqlx_postgres` | ✅ | ❌ | Production, existing database |
 
-*Support planned - see [Custom Storage](#custom-storage) section for implementation details.
 
 ## Custom Storage
 

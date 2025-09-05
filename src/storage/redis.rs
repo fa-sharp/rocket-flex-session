@@ -1,7 +1,7 @@
 //! Session storage with Redis (and Redis-compatible databases)
 
 use fred::{
-    prelude::{HashesInterface, KeysInterface, Pool, Value},
+    prelude::{FromValue, HashesInterface, KeysInterface, Pool, Value},
     types::Expiration,
 };
 use rocket::{async_trait, http::CookieJar};
@@ -17,15 +17,19 @@ pub enum RedisType {
 }
 
 /**
-Session storage with Redis (and Redis-compatible databases) using the [fred.rs](https://docs.rs/fred) crate.
-You can store the data as a Redis string or hash. Your session data type must implement `TryFrom<Value>`
-using the fred.rs [Value](https://docs.rs/fred/latest/fred/types/enum.Value.html) type, as well as the
-inverse `TryFrom<MyData> for Value`, in order to dictate how the data will be converted to/from the Redis data type.
+Redis session storage using the [fred.rs](https://docs.rs/fred) crate.
+
+You can store the data as a Redis string or hash. Your session data type must implement [`FromValue`](https://docs.rs/fred/latest/fred/types/trait.FromValue.html)
+from the fred.rs crate, as well as the inverse `From<MyData>` or `TryFrom<MyData>` for [`Value`](https://docs.rs/fred/latest/fred/types/enum.Value.html) in order
+to dictate how the data will be converted to/from the Redis data type.
 - For `RedisType::String`, convert to/from `Value::String`
 - For `RedisType::Hash`, convert to/from `Value::Map`
 
+💡 Common hashmap types like `HashMap<String, String>` are automatically supported - make sure to use `RedisType::Hash`
+when constructing the storage to ensure they are properly converted and stored as Redis hashes.
+
 ```rust
-use fred::prelude::{Builder, ClientLike, Config, Value};
+use fred::prelude::{Builder, ClientLike, Config, FromValue, Value};
 use rocket_flex_session::{error::SessionError, storage::{redis::{RedisFredStorage, RedisType}}};
 
 async fn setup_storage() -> RedisFredStorage {
@@ -35,6 +39,8 @@ async fn setup_storage() -> RedisFredStorage {
         .build_pool(4)
         .expect("Should build Redis pool");
     redis_pool.init().await.expect("Should initialize Redis pool");
+
+    // Construct the storage
     let storage = RedisFredStorage::new(
         redis_pool,
         RedisType::String,  // or RedisType::Hash
@@ -48,19 +54,16 @@ struct MySessionData {
     user_id: String,
 }
 
-// Implement `TryFrom<Value>` to convert from the Redis value to your session data type
-impl TryFrom<Value> for MySessionData {
-    type Error = SessionError; // or use your own error type
-    fn try_from(value: Value) -> Result<Self, Self::Error> {
-        match value {
-            Value::String(id) => Ok(MySessionData {
-                user_id: id.to_string(),
-            }),
-            _ => Err(SessionError::NotFound),
-        }
+// Implement `FromValue` to convert from the Redis value to your session data type
+impl FromValue for MySessionData {
+    fn from_value(value: Value) -> Result<Self, fred::error::Error> {
+        let data: String = value.convert()?; // fred.rs provides several conversion methods on the Value type
+        Ok(MySessionData {
+            user_id: data,
+        })
     }
 }
-// You can use From or TryFrom for the inverse conversion
+// Implement the inverse conversion
 impl From<MySessionData> for Value {
     fn from(data: MySessionData) -> Self {
         Value::String(data.user_id.into())
@@ -90,8 +93,7 @@ impl RedisFredStorage {
 #[async_trait]
 impl<T> SessionStorage<T> for RedisFredStorage
 where
-    T: TryFrom<Value> + TryInto<Value> + Clone + Send + Sync + 'static,
-    <T as TryFrom<Value>>::Error: std::error::Error + Send + Sync + 'static,
+    T: FromValue + TryInto<Value> + Clone + Send + Sync + 'static,
     <T as TryInto<Value>>::Error: std::error::Error + Send + Sync + 'static,
 {
     async fn load(
@@ -119,8 +121,7 @@ where
         };
 
         let found_value = value.ok_or(SessionError::NotFound)?;
-        let data =
-            T::try_from(found_value).map_err(|e| SessionError::Serialization(Box::new(e)))?;
+        let data = T::from_value(found_value)?;
 
         Ok((data, ttl.unwrap_or(orig_ttl.try_into().unwrap_or(0))))
     }
