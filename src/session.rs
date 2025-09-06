@@ -251,9 +251,7 @@ where
     /// Set the value of a key in the session data. Will create a new session if there isn't one.
     pub fn set_key(&mut self, key: K, value: V) {
         self.get_inner_lock().tap_data_mut(
-            |data| {
-                data.get_or_insert_default().insert(key, value);
-            },
+            |data| data.get_or_insert_default().insert(key, value),
             self.get_default_ttl(),
         );
         self.update_cookies();
@@ -265,9 +263,16 @@ where
         I: IntoIterator<Item = (K, V)>,
     {
         self.get_inner_lock().tap_data_mut(
-            |data| {
-                data.get_or_insert_default().extend(kv_iter);
-            },
+            |data| data.get_or_insert_default().extend(kv_iter),
+            self.get_default_ttl(),
+        );
+        self.update_cookies();
+    }
+
+    /// Remove a key from the session data.
+    pub fn remove_key(&mut self, key: K) {
+        self.get_inner_lock().tap_data_mut(
+            |data| data.get_or_insert_default().remove(&key),
             self.get_default_ttl(),
         );
         self.update_cookies();

@@ -68,15 +68,21 @@ where
         Ok(Some(session_ids))
     }
 
-    /// Invalidate all sessions with the same identifier as the current session, returning the number of sessions invalidated.
-    /// Returns `None` if there's no session or the session isn't indexed.
-    pub async fn invalidate_all_sessions(&self) -> Result<Option<u64>, SessionError> {
-        let Some(identifier) = self.get_identifier() else {
+    /// Invalidate all sessions with the same identifier as the current session, optionally keeping the current session active.
+    /// Returns the number of sessions invalidated, or `None` if there's no session or the session isn't indexed.
+    pub async fn invalidate_all_sessions(
+        &self,
+        keep_current: bool,
+    ) -> Result<Option<u64>, SessionError> {
+        let Some((session_id, identifier)) = self.id().zip(self.get_identifier()) else {
             return Ok(None);
         };
         let storage = self.get_indexed_storage()?;
         let num_sessions = storage
-            .invalidate_sessions_by_identifier(&identifier)
+            .invalidate_sessions_by_identifier(
+                &identifier,
+                keep_current.then_some(session_id.as_str()),
+            )
             .await?;
 
         Ok(Some(num_sessions))
@@ -106,16 +112,14 @@ where
         identifier: &T::Id,
     ) -> Result<u64, SessionError> {
         let storage = self.get_indexed_storage()?;
-        storage.invalidate_sessions_by_identifier(identifier).await
+        storage
+            .invalidate_sessions_by_identifier(identifier, None)
+            .await
     }
 
-    /// Get the current session's identifier
+    /// Get the current session's identifier, if there is one.
     fn get_identifier(&self) -> Option<T::Id> {
-        let identifier = {
-            let inner = self.get_inner_lock();
-            inner.get_current_identifier().cloned()
-        };
-        identifier
+        self.get_inner_lock().get_current_identifier().cloned()
     }
 
     /// Try to cast the storage as an indexed storage

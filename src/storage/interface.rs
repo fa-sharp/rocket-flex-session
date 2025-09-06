@@ -74,6 +74,11 @@ where
     /// Get all session IDs associated with the given identifier.
     async fn get_session_ids_by_identifier(&self, id: &T::Id) -> SessionResult<Vec<String>>;
 
-    /// Remove all sessions associated with the given identifier. Returns the number of sessions removed.
-    async fn invalidate_sessions_by_identifier(&self, id: &T::Id) -> SessionResult<u64>;
+    /// Remove all sessions associated with the given identifier, optionally excluding one session ID.
+    /// Returns the number of sessions removed.
+    async fn invalidate_sessions_by_identifier(
+        &self,
+        id: &T::Id,
+        excluded_session_id: Option<&str>,
+    ) -> SessionResult<u64>;
 }

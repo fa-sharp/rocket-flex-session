@@ -164,7 +164,7 @@ async fn invalidate_by_identifier(storage_case: &str) {
     // Invalidate all sessions for user1
     assert_eq!(
         storage
-            .invalidate_sessions_by_identifier(&"user1".to_string())
+            .invalidate_sessions_by_identifier(&"user1".to_string(), None)
             .await
             .unwrap(),
         2
@@ -186,9 +186,65 @@ async fn invalidate_by_identifier(storage_case: &str) {
         .await
         .unwrap();
     assert_eq!(user2_sessions.len(), 1);
-    assert!(user2_sessions
-        .iter()
-        .any(|(id, data)| id == "sid3" && data == &session3));
+    assert_eq!(user2_sessions[0], ("sid3".to_string(), session3));
+
+    storage.shutdown().await.unwrap();
+    if let Some(task) = cleanup_task {
+        task.await
+    }
+}
+
+#[test_case("memory"; "Memory")]
+#[test_case("sqlx"; "Sqlx Postgres")]
+#[rocket::async_test]
+async fn invalidate_all_but_one_by_identifier(storage_case: &str) {
+    let (storage, cleanup_task) = create_storage(storage_case).await;
+    storage.setup().await.unwrap();
+
+    let session1 = TestSession {
+        user_id: "user1".to_string(),
+        data: "session1_data".to_string(),
+    };
+    let session2 = TestSession {
+        user_id: "user1".to_string(),
+        data: "session2_data".to_string(),
+    };
+    let session3 = TestSession {
+        user_id: "user1".to_string(),
+        data: "session3_data".to_string(),
+    };
+
+    // Save sessions
+    storage.save("sid1", session1, 3600).await.unwrap();
+    storage.save("sid2", session2, 3600).await.unwrap();
+    storage.save("sid3", session3.clone(), 3600).await.unwrap();
+
+    // Verify sessions exist
+    assert_eq!(
+        storage
+            .get_sessions_by_identifier(&"user1".to_string())
+            .await
+            .unwrap()
+            .len(),
+        3
+    );
+
+    // Invalidate all sessions for user1 except the last one
+    assert_eq!(
+        storage
+            .invalidate_sessions_by_identifier(&"user1".to_string(), Some("sid3"))
+            .await
+            .unwrap(),
+        2
+    );
+
+    // Verify the last user1 session still exists
+    let user1_sessions = storage
+        .get_sessions_by_identifier(&"user1".to_string())
+        .await
+        .unwrap();
+    assert_eq!(user1_sessions.len(), 1);
+    assert_eq!(user1_sessions[0], ("sid3".to_string(), session3));
 
     storage.shutdown().await.unwrap();
     if let Some(task) = cleanup_task {
@@ -270,7 +326,7 @@ async fn nonexistent_identifier(storage_case: &str) {
     // Try to invalidate sessions for non-existent identifier (should not error)
     assert_eq!(
         storage
-            .invalidate_sessions_by_identifier(&"nonexistent".to_string())
+            .invalidate_sessions_by_identifier(&"nonexistent".to_string(), None)
             .await
             .unwrap(),
         0

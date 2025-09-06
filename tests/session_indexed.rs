@@ -79,7 +79,16 @@ async fn get_sessions_for_user(session: Session<'_, UserSession>, user_id: Strin
 
 #[get("/user/invalidate-all")]
 async fn invalidate_all_user_sessions(session: Session<'_, UserSession>) -> String {
-    match session.invalidate_all_sessions().await {
+    match session.invalidate_all_sessions(false).await {
+        Ok(Some(n)) => format!("{n} session(s) for current user invalidated."),
+        Ok(None) => "No current session".to_string(),
+        Err(e) => format!("Error invalidating sessions: {e}"),
+    }
+}
+
+#[get("/user/invalidate-other")]
+async fn invalidate_other_user_sessions(session: Session<'_, UserSession>) -> String {
+    match session.invalidate_all_sessions(true).await {
         Ok(Some(n)) => format!("{n} session(s) for current user invalidated."),
         Ok(None) => "No current session".to_string(),
         Err(e) => format!("Error invalidating sessions: {e}"),
@@ -137,6 +146,7 @@ fn rocket() -> Rocket<Build> {
                 get_user_sessions,
                 get_sessions_for_user,
                 invalidate_all_user_sessions,
+                invalidate_other_user_sessions,
                 invalidate_sessions_for_user,
                 get_user_session_ids,
                 user_profile,
@@ -237,6 +247,42 @@ mod tests {
         let response = client.get("/user/profile").dispatch();
         assert_eq!(response.status(), Status::Ok);
         assert_eq!(response.into_string().unwrap(), "No active session");
+    }
+
+    #[test]
+    fn test_invalidate_other_sessions() {
+        let client = create_test_client();
+
+        let response = client.get("/user/login/user1/alice").dispatch();
+        assert_eq!(response.status(), Status::Ok);
+
+        // Create two more sessions for the same user, simulating a different device
+        let response = client
+            .get("/user/login/user1/alice")
+            .private_cookie("rocket") // empty cookie
+            .dispatch();
+        assert_eq!(response.status(), Status::Ok);
+        let response = client
+            .get("/user/login/user1/alice")
+            .private_cookie("rocket")
+            .dispatch();
+        assert_eq!(response.status(), Status::Ok);
+
+        // Invalidate all sessions except the current one
+        let response = client.get("/user/invalidate-other").dispatch();
+        assert_eq!(response.status(), Status::Ok);
+        assert_eq!(
+            response.into_string().unwrap(),
+            "2 session(s) for current user invalidated."
+        );
+
+        // Profile should still show active session
+        let response = client.get("/user/profile").dispatch();
+        assert_eq!(response.status(), Status::Ok);
+        assert!(response
+            .into_string()
+            .unwrap()
+            .contains("Profile for alice"));
     }
 
     #[test]

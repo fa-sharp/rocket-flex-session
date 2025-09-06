@@ -83,28 +83,28 @@ where
     ) -> SessionResult<(T, u32)> {
         let row = match ttl {
             Some(new_ttl) => {
-                sqlx::query(&format!(
-                    r#"
-                    UPDATE "{}" SET {EXPIRES_COLUMN} = $1
-                    WHERE {ID_COLUMN} = $2 AND {EXPIRES_COLUMN} > CURRENT_TIMESTAMP
-                    RETURNING {DATA_COLUMN}, {EXPIRES_COLUMN}"#,
+                let sql = format!(
+                    "UPDATE \"{}\" SET {EXPIRES_COLUMN} = $1 \
+                    WHERE {ID_COLUMN} = $2 AND {EXPIRES_COLUMN} > CURRENT_TIMESTAMP \
+                    RETURNING {DATA_COLUMN}, {EXPIRES_COLUMN}",
                     &self.table_name,
-                ))
-                .bind(OffsetDateTime::now_utc() + Duration::seconds(new_ttl.into()))
-                .bind(id)
-                .fetch_optional(&self.pool)
-                .await?
+                );
+                sqlx::query(&sql)
+                    .bind(OffsetDateTime::now_utc() + Duration::seconds(new_ttl.into()))
+                    .bind(id)
+                    .fetch_optional(&self.pool)
+                    .await?
             }
             None => {
-                sqlx::query(&format!(
-                    r#"
-                    SELECT {DATA_COLUMN}, {EXPIRES_COLUMN} FROM "{}"
-                    WHERE {ID_COLUMN} = $1 AND {EXPIRES_COLUMN} > CURRENT_TIMESTAMP"#,
+                let sql = format!(
+                    "SELECT {DATA_COLUMN}, {EXPIRES_COLUMN} FROM \"{}\" \
+                    WHERE {ID_COLUMN} = $1 AND {EXPIRES_COLUMN} > CURRENT_TIMESTAMP",
                     &self.table_name,
-                ))
-                .bind(id)
-                .fetch_optional(&self.pool)
-                .await?
+                );
+                sqlx::query(&sql)
+                    .bind(id)
+                    .fetch_optional(&self.pool)
+                    .await?
             }
         };
 
@@ -123,35 +123,29 @@ where
     }
 
     async fn save(&self, id: &str, data: T, ttl: u32) -> SessionResult<()> {
-        sqlx::query(&format!(
-            r#"
-            INSERT INTO "{}" ({ID_COLUMN}, {}, {DATA_COLUMN}, {EXPIRES_COLUMN})
-            VALUES ($1, $2, $3, $4)
-            ON CONFLICT ({ID_COLUMN}) DO UPDATE SET
-                {DATA_COLUMN} = EXCLUDED.{DATA_COLUMN},
-                {EXPIRES_COLUMN} = EXCLUDED.{EXPIRES_COLUMN}
-            "#,
+        let sql = format!(
+            "INSERT INTO \"{}\" ({ID_COLUMN}, {}, {DATA_COLUMN}, {EXPIRES_COLUMN}) \
+            VALUES ($1, $2, $3, $4) \
+            ON CONFLICT ({ID_COLUMN}) DO UPDATE SET \
+                {DATA_COLUMN} = EXCLUDED.{DATA_COLUMN}, \
+                {EXPIRES_COLUMN} = EXCLUDED.{EXPIRES_COLUMN}",
             self.table_name,
             T::NAME
-        ))
-        .bind(id)
-        .bind(data.identifier())
-        .bind(data.to_string())
-        .bind(OffsetDateTime::now_utc() + Duration::seconds(ttl.into()))
-        .execute(&self.pool)
-        .await?;
+        );
+        sqlx::query(&sql)
+            .bind(id)
+            .bind(data.identifier())
+            .bind(data.to_string())
+            .bind(OffsetDateTime::now_utc() + Duration::seconds(ttl.into()))
+            .execute(&self.pool)
+            .await?;
 
         Ok(())
     }
 
     async fn delete(&self, id: &str, _cookie_jar: &CookieJar) -> SessionResult<()> {
-        sqlx::query(&format!(
-            "DELETE FROM {} WHERE {ID_COLUMN} = $1",
-            &self.table_name
-        ))
-        .bind(id)
-        .execute(&self.pool)
-        .await?;
+        let sql = format!("DELETE FROM {} WHERE {ID_COLUMN} = $1", &self.table_name);
+        sqlx::query(&sql).bind(id).execute(&self.pool).await?;
 
         Ok(())
     }
@@ -198,12 +192,11 @@ where
 
 async fn cleanup_expired_sessions(table_name: &str, pool: &PgPool) -> Result<u64, sqlx::Error> {
     rocket::debug!("Cleaning up expired sessions");
-    let rows = sqlx::query(&format!(
-        "DELETE FROM {table_name} WHERE {EXPIRES_COLUMN} < $1"
-    ))
-    .bind(OffsetDateTime::now_utc())
-    .execute(pool)
-    .await?;
+    let sql = format!("DELETE FROM \"{table_name}\" WHERE {EXPIRES_COLUMN} < $1");
+    let rows = sqlx::query(&sql)
+        .bind(OffsetDateTime::now_utc())
+        .execute(pool)
+        .await?;
     Ok(rows.rows_affected())
 }
 
@@ -216,17 +209,13 @@ where
     <T as TryFrom<String>>::Error: std::error::Error + Send + Sync + 'static,
 {
     async fn get_sessions_by_identifier(&self, id: &T::Id) -> SessionResult<Vec<(String, T)>> {
-        let rows = sqlx::query(&format!(
-            r#"
-            SELECT id, data FROM "{}"
-            WHERE {} = $1 AND expires > CURRENT_TIMESTAMP"#,
+        let sql = format!(
+            "SELECT {ID_COLUMN}, {DATA_COLUMN} FROM \"{}\" \
+            WHERE {} = $1 AND {EXPIRES_COLUMN} > CURRENT_TIMESTAMP",
             &self.table_name,
             T::NAME
-        ))
-        .bind(id)
-        .fetch_all(&self.pool)
-        .await?;
-
+        );
+        let rows = sqlx::query(&sql).bind(id).fetch_all(&self.pool).await?;
         let parsed_rows = rows
             .into_iter()
             .filter_map(|row| {
@@ -236,39 +225,45 @@ where
                 Some((id, data))
             })
             .collect();
+
         Ok(parsed_rows)
     }
 
     async fn get_session_ids_by_identifier(&self, id: &T::Id) -> SessionResult<Vec<String>> {
-        let rows = sqlx::query(&format!(
-            r#"
-            SELECT id FROM "{}"
-            WHERE {} = $1 AND expires > CURRENT_TIMESTAMP"#,
+        let sql = format!(
+            "SELECT {ID_COLUMN} FROM \"{}\" \
+            WHERE {} = $1 AND {EXPIRES_COLUMN} > CURRENT_TIMESTAMP",
             &self.table_name,
             T::NAME
-        ))
-        .bind(id)
-        .fetch_all(&self.pool)
-        .await?;
-
+        );
+        let rows = sqlx::query(&sql).bind(id).fetch_all(&self.pool).await?;
         let parsed_rows = rows
             .into_iter()
             .filter_map(|row| row.try_get(0).ok())
             .collect();
+
         Ok(parsed_rows)
     }
 
-    async fn invalidate_sessions_by_identifier(&self, id: &T::Id) -> SessionResult<u64> {
-        let rows = sqlx::query(&format!(
-            r#"
-            DELETE FROM "{}"
-            WHERE {} = $1"#,
+    async fn invalidate_sessions_by_identifier(
+        &self,
+        id: &T::Id,
+        excluded_session_id: Option<&str>,
+    ) -> SessionResult<u64> {
+        let mut sql = format!(
+            "DELETE FROM \"{}\" WHERE {} = $1",
             &self.table_name,
             T::NAME
-        ))
-        .bind(id)
-        .execute(&self.pool)
-        .await?;
+        );
+        if excluded_session_id.is_some() {
+            sql.push_str(&format!(" AND {ID_COLUMN} != $2"));
+        }
+
+        let mut query = sqlx::query(&sql).bind(id);
+        if let Some(excluded_id) = excluded_session_id {
+            query = query.bind(excluded_id);
+        }
+        let rows = query.execute(&self.pool).await?;
 
         Ok(rows.rows_affected())
     }

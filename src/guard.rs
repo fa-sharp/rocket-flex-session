@@ -1,7 +1,7 @@
 use std::{any::type_name, sync::Mutex};
 
 use rocket::{
-    http::{Cookie, CookieJar},
+    http::CookieJar,
     request::{FromRequest, Outcome},
     Request,
 };
@@ -26,17 +26,17 @@ where
         let fairing = get_fairing::<T>(req.rocket());
         let cookie_jar = req.cookies();
 
+        // Use rocket's local cache so that the session data is only fetched once per request
         let (cached_inner, session_error): &LocalCachedSession<T> = req
             .local_cache_async(async {
-                let session_cookie = cookie_jar.get_private(&fairing.options.cookie_name);
-                get_session_data(
-                    session_cookie,
+                fetch_session_data(
+                    cookie_jar,
+                    &fairing.options.cookie_name,
                     fairing
                         .options
                         .rolling
                         .then(|| fairing.options.ttl.unwrap_or(fairing.options.max_age)),
                     fairing.storage.as_ref(),
-                    cookie_jar,
                 )
                 .await
             })
@@ -66,14 +66,15 @@ where
     })
 }
 
-/// Get session data from storage
+/// Fetch session data from storage
 #[inline(always)]
-async fn get_session_data<'r, T: Send + Sync + Clone>(
-    session_cookie: Option<Cookie<'static>>,
+async fn fetch_session_data<'r, T: Send + Sync + Clone>(
+    cookie_jar: &'r CookieJar<'_>,
+    cookie_name: &str,
     rolling_ttl: Option<u32>,
     storage: &'r dyn SessionStorage<T>,
-    cookie_jar: &'r CookieJar<'_>,
 ) -> LocalCachedSession<T> {
+    let session_cookie = cookie_jar.get_private(cookie_name);
     if let Some(cookie) = session_cookie {
         let id = cookie.value();
         rocket::debug!("Got session id '{}' from cookie. Retrieving session...", id);

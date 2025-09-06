@@ -270,18 +270,38 @@ where
         Ok(session_ids.into_iter().collect())
     }
 
-    async fn invalidate_sessions_by_identifier(&self, id: &T::Id) -> SessionResult<u64> {
+    async fn invalidate_sessions_by_identifier(
+        &self,
+        id: &T::Id,
+        excluded_session_id: Option<&str>,
+    ) -> SessionResult<u64> {
         let id_str = id.to_string();
-        let session_ids = {
-            let mut index = self.identifier_index.lock().unwrap();
-            index.remove(&id_str).unwrap_or_default()
+        let mut session_ids_to_remove = {
+            let index = self.identifier_index.lock().unwrap();
+            index.get(&id_str).cloned().unwrap_or_default()
         };
+        if let Some(session_id) = excluded_session_id {
+            session_ids_to_remove.retain(|id| id != session_id);
+        }
 
         // Remove all sessions from cache
-        for session_id in &session_ids {
+        for session_id in &session_ids_to_remove {
             self.base_storage.cache().remove(session_id).await;
         }
 
-        Ok(session_ids.len() as u64)
+        // Remove all sessions from index
+        {
+            let mut index = self.identifier_index.lock().unwrap();
+            if let Some(session_set) = index.get_mut(&id_str) {
+                for session_id in &session_ids_to_remove {
+                    session_set.remove(session_id);
+                }
+                if session_set.is_empty() {
+                    index.remove(&id_str);
+                }
+            }
+        }
+
+        Ok(session_ids_to_remove.len() as u64)
     }
 }
