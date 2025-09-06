@@ -157,8 +157,8 @@ async fn get_all_user_sessions(session: Session<'_, UserSession>) -> String {
 
 #[rocket::get("/user/logout-everywhere")]
 async fn logout_everywhere(session: Session<'_, UserSession>) -> String {
-    match session.invalidate_all_sessions().await {
-        Ok(Some(())) => "Logged out from all devices".to_string(),
+    match session.invalidate_all_sessions(false).await {
+        Ok(Some(n)) => format!("Logged out from {n} sessions"),
         Ok(None) => "No active session".to_string(),
         Err(e) => format!("Error: {}", e),
     }

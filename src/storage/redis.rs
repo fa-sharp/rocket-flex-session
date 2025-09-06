@@ -50,11 +50,10 @@ async fn setup_storage() -> RedisFredStorage {
     storage
 }
 
-// If using a custom struct, implement the following...
+// If using a custom struct for your session data, implement the following...
 struct MySessionData {
     user_id: String,
 }
-
 // Implement `FromValue` to convert from the Redis value to your session data type
 impl FromValue for MySessionData {
     fn from_value(value: Value) -> Result<Self, fred::error::Error> {
