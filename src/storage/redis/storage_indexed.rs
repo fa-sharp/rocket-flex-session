@@ -24,6 +24,14 @@ impl RedisFredStorageIndexed {
             index_ttl: index_ttl.unwrap_or(DEFAULT_INDEX_TTL),
         }
     }
+
+    fn session_index_key(&self, identifier_name: &str, identifier: &impl ToString) -> String {
+        format!(
+            "{}{identifier_name}:{}",
+            self.base_storage.prefix,
+            identifier.to_string()
+        )
+    }
 }
 
 #[rocket::async_trait]
@@ -46,13 +54,11 @@ where
 
     async fn save(&self, id: &str, data: T, ttl: u32) -> SessionResult<()> {
         if let Some(identifier) = data.identifier() {
-            let session_index_key = self
-                .base_storage
-                .session_index_key(T::IDENTIFIER, identifier);
+            let index_key = self.session_index_key(T::IDENTIFIER, identifier);
             let pipeline = self.base_storage.pool.next().pipeline();
-            let _: () = pipeline.sadd(&session_index_key, id).await?;
+            let _: () = pipeline.sadd(&index_key, id).await?;
             let _: () = pipeline
-                .expire(&session_index_key, self.index_ttl.into(), None)
+                .expire(&index_key, self.index_ttl.into(), None)
                 .await?;
             let _: () = pipeline.all().await?;
         }
@@ -70,9 +76,7 @@ where
         let pipeline = self.base_storage.pool.next().pipeline();
         let _: () = pipeline.del(self.base_storage.session_key(id)).await?;
         if let Some(identifier) = data.identifier() {
-            let session_idx_key = self
-                .base_storage
-                .session_index_key(T::IDENTIFIER, identifier);
+            let session_idx_key = self.session_index_key(T::IDENTIFIER, identifier);
             let _: () = pipeline.srem(&session_idx_key, id).await?;
         }
         Ok(pipeline.all().await?)
@@ -87,8 +91,8 @@ where
     <T as SessionIdentifier>::Id: ToString,
 {
     async fn get_sessions_by_identifier(&self, id: &T::Id) -> SessionResult<Vec<(String, T)>> {
-        let session_index_key = self.base_storage.session_index_key(T::IDENTIFIER, id);
-        let session_ids: Vec<String> = self.base_storage.pool.smembers(&session_index_key).await?;
+        let index_key = self.session_index_key(T::IDENTIFIER, id);
+        let session_ids: Vec<String> = self.base_storage.pool.smembers(&index_key).await?;
 
         let session_value_pipeline = self.base_storage.pool.next().pipeline();
         for session_id in &session_ids {
@@ -100,23 +104,26 @@ where
         }
         let session_values: Vec<Option<Value>> = session_value_pipeline.all().await?;
 
-        let sessions = session_values
+        let (existing_sessions, stale_sessions): (Vec<_>, Vec<_>) = session_ids
             .into_iter()
-            .enumerate()
-            .filter_map(|(idx, value)| {
-                value.and_then(|value| {
-                    let session_id = session_ids.get(idx)?.clone();
-                    let data = T::from_value(value).ok()?;
-                    Some((session_id, data))
-                })
-            })
+            .zip(session_values.into_iter())
+            .map(|(id, value)| (id, value.and_then(|v| T::from_value(v).ok())))
+            .partition(|(_, data)| data.is_some());
+        if !stale_sessions.is_empty() {
+            let stale_ids: Vec<_> = stale_sessions.into_iter().map(|(id, _)| id).collect();
+            let _: () = self.base_storage.pool.srem(&index_key, stale_ids).await?;
+        }
+
+        let sessions = existing_sessions
+            .into_iter()
+            .map(|(session_id, data)| (session_id.to_owned(), data.expect("already checked")))
             .collect();
         Ok(sessions)
     }
 
     async fn get_session_ids_by_identifier(&self, id: &T::Id) -> SessionResult<Vec<String>> {
-        let session_index_key = self.base_storage.session_index_key(T::IDENTIFIER, id);
-        let session_ids: Vec<String> = self.base_storage.pool.smembers(&session_index_key).await?;
+        let index_key = self.session_index_key(T::IDENTIFIER, id);
+        let session_ids: Vec<String> = self.base_storage.pool.smembers(&index_key).await?;
 
         let session_exist_pipeline = self.base_storage.pool.next().pipeline();
         for session_id in &session_ids {
@@ -125,12 +132,17 @@ where
         }
         let session_exist_results: Vec<bool> = session_exist_pipeline.all().await?;
 
-        let existing_sessions = session_ids
+        let (existing_sessions, stale_sessions): (Vec<_>, Vec<_>) = session_ids
             .into_iter()
-            .enumerate()
-            .filter_map(|(idx, id)| session_exist_results.get(idx)?.then_some(id))
-            .collect();
-        Ok(existing_sessions)
+            .zip(session_exist_results.into_iter())
+            .partition(|(_, exists)| *exists);
+        if !stale_sessions.is_empty() {
+            let stale_ids: Vec<_> = stale_sessions.into_iter().map(|(id, _)| id).collect();
+            let _: () = self.base_storage.pool.srem(&index_key, stale_ids).await?;
+        }
+
+        let sessions = existing_sessions.into_iter().map(|(id, _)| id).collect();
+        Ok(sessions)
     }
 
     async fn invalidate_sessions_by_identifier(
@@ -138,9 +150,9 @@ where
         id: &T::Id,
         excluded_session_id: Option<&str>,
     ) -> SessionResult<u64> {
-        let session_index_key = self.base_storage.session_index_key(T::IDENTIFIER, id);
-        let mut session_ids: Vec<String> =
-            self.base_storage.pool.smembers(&session_index_key).await?;
+        let index_key = self.session_index_key(T::IDENTIFIER, id);
+        let mut session_ids: Vec<String> = self.base_storage.pool.smembers(&index_key).await?;
+
         if let Some(excluded_id) = excluded_session_id {
             session_ids.retain(|id| id != excluded_id);
         }
@@ -154,7 +166,7 @@ where
             .collect();
         let delete_pipeline = self.base_storage.pool.next().pipeline();
         let _: () = delete_pipeline.del(session_keys).await?;
-        let _: () = delete_pipeline.srem(session_index_key, session_ids).await?;
+        let _: () = delete_pipeline.srem(index_key, session_ids).await?;
         let (del_num, _srem_num): (u64, u64) = delete_pipeline.all().await?;
 
         Ok(del_num)

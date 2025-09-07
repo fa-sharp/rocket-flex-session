@@ -25,18 +25,6 @@ impl RedisFredStorage {
         format!("{}{id}", self.prefix)
     }
 
-    pub(super) fn session_index_key(
-        &self,
-        identifier_name: &str,
-        identifier: &impl ToString,
-    ) -> String {
-        format!(
-            "{}{identifier_name}:{}",
-            self.prefix,
-            identifier.to_string()
-        )
-    }
-
     pub(super) async fn fetch_session(
         &self,
         id: &str,
