@@ -119,7 +119,7 @@ async fn create_rocket(
         "redis_indexed" => {
             let (pool, prefix) = setup_redis_fred().await;
             let base_storage = RedisFredStorage::new(pool.clone(), RedisType::String, &prefix);
-            let storage = RedisFredStorageIndexed::new(base_storage);
+            let storage = RedisFredStorageIndexed::new(base_storage, None);
             let fairing = RocketFlexSession::<SessionData>::builder()
                 .storage(storage)
                 .build();

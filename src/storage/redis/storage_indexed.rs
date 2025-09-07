@@ -9,9 +9,20 @@ use crate::{
 
 use super::{RedisFredStorage, RedisFredStorageIndexed};
 
+const DEFAULT_INDEX_TTL: u32 = 60 * 60 * 24 * 7 * 2; // 2 weeks
+
 impl RedisFredStorageIndexed {
-    pub fn new(base_storage: RedisFredStorage) -> Self {
-        Self { base_storage }
+    /// Create the indexed storage.
+    ///
+    /// # Parameters:
+    /// - `base_storage`: The base storage to use for session data.
+    /// - `index_ttl`: The TTL for the session index - should match
+    /// your longest expected session duration (default: 2 weeks).
+    pub fn new(base_storage: RedisFredStorage, index_ttl: Option<u32>) -> Self {
+        Self {
+            base_storage,
+            index_ttl: index_ttl.unwrap_or(DEFAULT_INDEX_TTL),
+        }
     }
 }
 
@@ -35,12 +46,14 @@ where
 
     async fn save(&self, id: &str, data: T, ttl: u32) -> SessionResult<()> {
         if let Some(identifier) = data.identifier() {
-            let session_idx_key = self
+            let session_index_key = self
                 .base_storage
                 .session_index_key(T::IDENTIFIER, identifier);
             let pipeline = self.base_storage.pool.next().pipeline();
-            let _: () = pipeline.sadd(&session_idx_key, id).await?;
-            let _: () = pipeline.expire(&session_idx_key, ttl.into(), None).await?;
+            let _: () = pipeline.sadd(&session_index_key, id).await?;
+            let _: () = pipeline
+                .expire(&session_index_key, self.index_ttl.into(), None)
+                .await?;
             let _: () = pipeline.all().await?;
         }
 

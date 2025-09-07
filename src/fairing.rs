@@ -162,7 +162,7 @@ where
         if let Some(deleted_id) = deleted {
             let delete_result = self.storage.delete(&deleted_id, req.cookies()).await;
             if let Err(e) = delete_result {
-                rocket::error!("Error while deleting session '{}': {}", deleted_id, e);
+                rocket::warn!("Error while deleting session '{deleted_id}': {e}");
             }
         }
 
@@ -170,7 +170,7 @@ where
         if let Some((id, pending_data, ttl)) = updated {
             let save_result = self.storage.save(&id, pending_data, ttl).await;
             if let Err(e) = save_result {
-                rocket::error!("Error while saving session '{}': {}", &id, e);
+                rocket::error!("Error while saving session '{id}': {e}");
             }
         }
     }
@@ -178,7 +178,7 @@ where
     async fn on_shutdown(&self, _rocket: &Rocket<Orbit>) {
         rocket::debug!("Shutting down session resources...");
         if let Err(e) = self.storage.shutdown().await {
-            rocket::warn!("Error during session storage shutdown: {}", e);
+            rocket::warn!("Error during session storage shutdown: {e}");
         }
     }
 }

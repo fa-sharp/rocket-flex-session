@@ -87,7 +87,7 @@ async fn create_storage(
         "redis" => {
             let (pool, prefix) = setup_redis_fred().await;
             let base_storage = RedisFredStorage::new(pool.clone(), RedisType::Hash, &prefix);
-            let storage = RedisFredStorageIndexed::new(base_storage);
+            let storage = RedisFredStorageIndexed::new(base_storage, None);
             let cleanup_task = teardown_redis_fred(pool, prefix).boxed();
             (Box::new(storage), Some(cleanup_task))
         }

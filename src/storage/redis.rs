@@ -81,4 +81,5 @@ pub struct RedisFredStorage {
 /// `<key_prefix><identifier_name>:<id>`. e.g.: `sess:user_id:1`
 pub struct RedisFredStorageIndexed {
     base_storage: RedisFredStorage,
+    index_ttl: u32,
 }

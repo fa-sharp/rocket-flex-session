@@ -8,6 +8,11 @@ use crate::error::{SessionError, SessionResult};
 use super::{RedisFredStorage, RedisType};
 
 impl RedisFredStorage {
+    /// Create the storage instance.
+    /// # Parameters
+    /// * `pool` - The initialized fred.rs connection pool.
+    /// * `redis_type` - The Redis data type to use for storing sessions.
+    /// * `key_prefix` - The prefix to use for session keys. (e.g. "sess:")
     pub fn new(pool: Pool, redis_type: RedisType, key_prefix: &str) -> Self {
         Self {
             pool,
