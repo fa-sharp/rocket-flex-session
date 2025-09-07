@@ -116,7 +116,7 @@ where
 
         let sessions = existing_sessions
             .into_iter()
-            .map(|(session_id, data)| (session_id.to_owned(), data.expect("already checked")))
+            .map(|(id, data)| (id, data.expect("already checked by partition")))
             .collect();
         Ok(sessions)
     }
