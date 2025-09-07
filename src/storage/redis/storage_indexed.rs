@@ -32,6 +32,24 @@ impl RedisFredStorageIndexed {
             identifier.to_string()
         )
     }
+
+    async fn fetch_session_index(
+        &self,
+        identifier_name: &str,
+        identifier: &impl ToString,
+    ) -> SessionResult<(Vec<String>, String)> {
+        let index_key = self.session_index_key(identifier_name, identifier);
+        let session_ids = self.base_storage.pool.smembers(&index_key).await?;
+        Ok((session_ids, index_key))
+    }
+
+    async fn cleanup_session_index(
+        &self,
+        index_key: &str,
+        stale_ids: Vec<String>,
+    ) -> SessionResult<()> {
+        Ok(self.base_storage.pool.srem(index_key, stale_ids).await?)
+    }
 }
 
 #[rocket::async_trait]
@@ -91,8 +109,7 @@ where
     <T as SessionIdentifier>::Id: ToString,
 {
     async fn get_sessions_by_identifier(&self, id: &T::Id) -> SessionResult<Vec<(String, T)>> {
-        let index_key = self.session_index_key(T::IDENTIFIER, id);
-        let session_ids: Vec<String> = self.base_storage.pool.smembers(&index_key).await?;
+        let (session_ids, index_key) = self.fetch_session_index(T::IDENTIFIER, id).await?;
 
         let session_value_pipeline = self.base_storage.pool.next().pipeline();
         for session_id in &session_ids {
@@ -111,7 +128,7 @@ where
             .partition(|(_, data)| data.is_some());
         if !stale_sessions.is_empty() {
             let stale_ids: Vec<_> = stale_sessions.into_iter().map(|(id, _)| id).collect();
-            let _: () = self.base_storage.pool.srem(&index_key, stale_ids).await?;
+            self.cleanup_session_index(&index_key, stale_ids).await?;
         }
 
         let sessions = existing_sessions
@@ -122,8 +139,7 @@ where
     }
 
     async fn get_session_ids_by_identifier(&self, id: &T::Id) -> SessionResult<Vec<String>> {
-        let index_key = self.session_index_key(T::IDENTIFIER, id);
-        let session_ids: Vec<String> = self.base_storage.pool.smembers(&index_key).await?;
+        let (session_ids, index_key) = self.fetch_session_index(T::IDENTIFIER, id).await?;
 
         let session_exist_pipeline = self.base_storage.pool.next().pipeline();
         for session_id in &session_ids {
@@ -138,7 +154,7 @@ where
             .partition(|(_, exists)| *exists);
         if !stale_sessions.is_empty() {
             let stale_ids: Vec<_> = stale_sessions.into_iter().map(|(id, _)| id).collect();
-            let _: () = self.base_storage.pool.srem(&index_key, stale_ids).await?;
+            self.cleanup_session_index(&index_key, stale_ids).await?;
         }
 
         let sessions = existing_sessions.into_iter().map(|(id, _)| id).collect();
@@ -150,9 +166,7 @@ where
         id: &T::Id,
         excluded_session_id: Option<&str>,
     ) -> SessionResult<u64> {
-        let index_key = self.session_index_key(T::IDENTIFIER, id);
-        let mut session_ids: Vec<String> = self.base_storage.pool.smembers(&index_key).await?;
-
+        let (mut session_ids, index_key) = self.fetch_session_index(T::IDENTIFIER, id).await?;
         if let Some(excluded_id) = excluded_session_id {
             session_ids.retain(|id| id != excluded_id);
         }
