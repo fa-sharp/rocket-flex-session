@@ -77,7 +77,7 @@ async fn fetch_session_data<'r, T: Send + Sync + Clone>(
     let session_cookie = cookie_jar.get_private(cookie_name);
     if let Some(cookie) = session_cookie {
         let id = cookie.value();
-        rocket::debug!("Got session id '{}' from cookie. Retrieving session...", id);
+        rocket::debug!("Got session id '{id}' from cookie. Retrieving session...");
         match storage.load(id, rolling_ttl, cookie_jar).await {
             Ok((data, ttl)) => {
                 rocket::debug!("Session found. Creating existing session...");
@@ -85,7 +85,7 @@ async fn fetch_session_data<'r, T: Send + Sync + Clone>(
                 (Mutex::new(session_inner), None)
             }
             Err(e) => {
-                rocket::debug!("Error from session storage, creating empty session: {}", e);
+                rocket::info!("Error from session storage, creating empty session: {e}");
                 (Mutex::default(), Some(e))
             }
         }
