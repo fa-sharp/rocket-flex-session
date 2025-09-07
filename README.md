@@ -15,7 +15,7 @@ Add to your `Cargo.toml`:
 ```toml
 [dependencies]
 rocket = "0.5"
-rocket-flex-session = { version = "0.1" }
+rocket-flex-session = { version = "0.2" }
 ```
 
 Basic usage:
