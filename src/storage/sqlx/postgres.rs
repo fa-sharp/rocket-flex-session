@@ -1,6 +1,7 @@
 use rocket::{
     async_trait,
     http::CookieJar,
+    time::{Duration, OffsetDateTime},
     tokio::{
         self,
         sync::{oneshot, Mutex},
@@ -8,7 +9,6 @@ use rocket::{
     },
 };
 use sqlx::{postgres::PgRow, PgPool, Row};
-use time::{Duration, OffsetDateTime};
 
 use crate::{
     error::{SessionError, SessionResult},

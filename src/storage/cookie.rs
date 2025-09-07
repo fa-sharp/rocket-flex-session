@@ -3,7 +3,7 @@
 use rocket::{
     async_trait,
     http::{Cookie, CookieJar},
-    serde::{de::DeserializeOwned, Deserialize, Serialize},
+    serde::{de::DeserializeOwned, json::serde_json, Deserialize, Serialize},
     time::{Duration, OffsetDateTime},
 };
 
@@ -179,19 +179,21 @@ where
 
 /// Represents a session retrieved from the cookie
 #[derive(Debug, Deserialize)]
+#[serde(crate = "rocket::serde")]
 struct DeserializedCookieSession<T> {
     pub id: String,
     pub data: T,
-    pub expires: time::OffsetDateTime,
+    pub expires: OffsetDateTime,
 }
 
 /// Represents data saved to the cookie. Structure should match [DeserializedCookieSession] - just
 /// using references here so we don't have to clone.
 #[derive(Debug, Serialize)]
+#[serde(crate = "rocket::serde")]
 struct SerializedCookieSession<'a, T> {
     pub id: &'a str,
     pub data: &'a T,
-    pub expires: time::OffsetDateTime,
+    pub expires: OffsetDateTime,
 }
 
 fn create_storage_cookie<'a, T>(
