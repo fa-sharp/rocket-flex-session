@@ -16,7 +16,7 @@ impl RedisFredStorage {
         }
     }
 
-    pub(super) fn key(&self, id: &str) -> String {
+    pub(super) fn session_key(&self, id: &str) -> String {
         format!("{}{id}", self.prefix)
     }
 
@@ -37,7 +37,7 @@ impl RedisFredStorage {
         id: &str,
         ttl: Option<u32>,
     ) -> SessionResult<(Value, u32)> {
-        let key = self.key(id);
+        let key = self.session_key(id);
         let pipeline = self.pool.next().pipeline();
         let _: () = match self.redis_type {
             RedisType::String => pipeline.get(&key).await?,
@@ -60,7 +60,7 @@ impl RedisFredStorage {
     }
 
     pub(super) async fn save_session(&self, id: &str, value: Value, ttl: u32) -> SessionResult<()> {
-        let key = self.key(id);
+        let key = self.session_key(id);
         let _: () = match self.redis_type {
             RedisType::String => {
                 self.pool

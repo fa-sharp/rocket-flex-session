@@ -55,7 +55,7 @@ where
         let data = T::from_value(value)?;
 
         let pipeline = self.base_storage.pool.next().pipeline();
-        let _: () = pipeline.del(self.base_storage.key(id)).await?;
+        let _: () = pipeline.del(self.base_storage.session_key(id)).await?;
         if let Some(identifier) = data.identifier() {
             let session_idx_key = self
                 .base_storage
@@ -79,7 +79,7 @@ where
 
         let session_value_pipeline = self.base_storage.pool.next().pipeline();
         for session_id in &session_ids {
-            let session_key = self.base_storage.key(&session_id);
+            let session_key = self.base_storage.session_key(&session_id);
             let _: () = match self.base_storage.redis_type {
                 super::RedisType::String => session_value_pipeline.get(&session_key).await?,
                 super::RedisType::Hash => session_value_pipeline.hgetall(&session_key).await?,
@@ -107,7 +107,7 @@ where
 
         let session_exist_pipeline = self.base_storage.pool.next().pipeline();
         for session_id in &session_ids {
-            let session_key = self.base_storage.key(&session_id);
+            let session_key = self.base_storage.session_key(&session_id);
             let _: () = session_exist_pipeline.exists(&session_key).await?;
         }
         let session_exist_results: Vec<bool> = session_exist_pipeline.all().await?;
@@ -137,7 +137,7 @@ where
 
         let session_keys: Vec<_> = session_ids
             .iter()
-            .map(|id| self.base_storage.key(id))
+            .map(|id| self.base_storage.session_key(id))
             .collect();
         let delete_pipeline = self.base_storage.pool.next().pipeline();
         let _: () = delete_pipeline.del(session_keys).await?;
