@@ -12,6 +12,8 @@ struct ActiveSession<T> {
     pending_data: Option<T>,
     /// Time-to-live in seconds
     ttl: u32,
+    /// Whether this is a new session that hasn't been stored yet
+    new: bool,
 }
 impl<T: Clone> ActiveSession<T> {
     /// Create a new active session with a generated ID, to be saved in storage
@@ -21,6 +23,7 @@ impl<T: Clone> ActiveSession<T> {
             data: new_data.clone(),
             pending_data: Some(new_data),
             ttl,
+            new: true,
         }
     }
     /// Active session that already exists in storage
@@ -30,6 +33,7 @@ impl<T: Clone> ActiveSession<T> {
             data,
             pending_data: None,
             ttl,
+            new: false,
         }
     }
 }
@@ -77,6 +81,10 @@ where
 
     pub(crate) fn get_current_ttl(&self) -> Option<u32> {
         self.current.as_ref().map(|s| s.ttl)
+    }
+
+    pub(crate) fn is_new(&self) -> bool {
+        self.current.as_ref().map(|s| s.new).unwrap_or(false)
     }
 
     pub(crate) fn set_data(&mut self, new_data: T, default_ttl: u32) {

@@ -8,7 +8,7 @@ pub struct RocketFlexSessionOptions {
     /// The session cookie's `HttpOnly` attribute (default: `true`)
     pub http_only: bool,
     /// The session cookie's `Max-Age` attribute, in seconds. This also determines
-    /// the session storage TTL, unless you specify a different `ttl` setting. (default: 14 days)
+    /// the session storage TTL, unless you specify a different `ttl` setting. (default: 2 weeks)
     pub max_age: u32,
     /// The session cookie's `Path` attribute (default: `"/"`)
     pub path: String,

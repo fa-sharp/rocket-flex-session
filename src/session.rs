@@ -223,9 +223,11 @@ where
             return;
         };
 
-        // Generate new cookie
-        self.cookie_jar
-            .add_private(create_session_cookie(id, self.options));
+        // Generate new session cookie if needed
+        if inner.is_new() {
+            let session_cookie = create_session_cookie(id, self.options);
+            self.cookie_jar.add_private(session_cookie);
+        }
 
         // Notify any cookie-based storage
         let save_result = self.storage.save_cookie(
