@@ -35,7 +35,7 @@ fred = { version = "10.1", optional = true, default-features = false, features =
     "i-hashes",
     "i-sets",
 ] }
-rand = "0.8"
+rand = "0.9"
 retainer = "0.3"
 rocket = { version = "~0.5.1", features = ["secrets"] }
 rocket_okapi = { version = "0.9", optional = true }

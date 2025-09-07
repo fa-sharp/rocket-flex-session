@@ -1,4 +1,4 @@
-use rand::distributions::{Alphanumeric, DistString};
+use rand::distr::{Alphanumeric, SampleString};
 
 use crate::SessionIdentifier;
 
@@ -19,7 +19,7 @@ impl<T: Clone> ActiveSession<T> {
     /// Create a new active session with a generated ID, to be saved in storage
     fn new(new_data: T, ttl: u32) -> Self {
         Self {
-            id: Alphanumeric.sample_string(&mut rand::rngs::OsRng, 20),
+            id: Alphanumeric.sample_string(&mut rand::rng(), 20),
             data: new_data.clone(),
             pending_data: Some(new_data),
             ttl,
