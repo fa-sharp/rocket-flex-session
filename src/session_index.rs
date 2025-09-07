@@ -18,7 +18,7 @@ use crate::{error::SessionError, storage::SessionStorageIndexed, Session};
 /// }
 ///
 /// impl SessionIdentifier for MySession {
-///     const NAME: &str = "user_id";
+///     const IDENTIFIER: &str = "user_id";
 ///     type Id = String;
 ///
 ///     fn identifier(&self) -> Option<&Self::Id> {
