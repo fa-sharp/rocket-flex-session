@@ -3,9 +3,7 @@ use rocket::{
     time::{Duration, OffsetDateTime},
 };
 use std::{
-    collections::HashMap,
     fmt::Display,
-    hash::Hash,
     marker::{Send, Sync},
     sync::{Mutex, MutexGuard},
 };
@@ -214,11 +212,11 @@ where
         self.inner.lock().expect("Failed to get session data lock")
     }
 
-    fn get_default_ttl(&self) -> u32 {
+    pub(super) fn get_default_ttl(&self) -> u32 {
         self.options.ttl.unwrap_or(self.options.max_age)
     }
 
-    fn update_cookies(&self) {
+    pub(super) fn update_cookies(&self) {
         let inner = self.get_inner_lock();
         let Some(id) = inner.get_id() else {
             rocket::warn!("Cookies not updated: no active session");
@@ -239,66 +237,6 @@ where
         if let Err(e) = save_result {
             rocket::error!("Error while saving session {:?}: {}", id, e);
         };
-    }
-}
-
-impl<K, V> Session<'_, HashMap<K, V>>
-where
-    K: Eq + Hash + Send + Sync + Clone,
-    V: Send + Sync + Clone,
-{
-    /// Get the value of a key in the session data via cloning
-    pub fn get_key<Q>(&self, key: &Q) -> Option<V>
-    where
-        Q: ?Sized + Eq + Hash,
-        K: std::borrow::Borrow<Q>,
-    {
-        self.get_inner_lock()
-            .get_current_data()
-            .and_then(|h| h.get(key).cloned())
-    }
-
-    /// Get the value of a key in the session data via a closure
-    pub fn tap_key<Q, F, R>(&self, key: &Q, f: F) -> R
-    where
-        Q: ?Sized + Eq + Hash,
-        K: std::borrow::Borrow<Q>,
-        F: FnOnce(Option<&V>) -> R,
-    {
-        f(self
-            .get_inner_lock()
-            .get_current_data()
-            .and_then(|d| d.get(key)))
-    }
-
-    /// Set the value of a key in the session data. Will create a new session if there isn't one.
-    pub fn set_key(&mut self, key: K, value: V) {
-        self.get_inner_lock().tap_data_mut(
-            |data| data.get_or_insert_default().insert(key, value),
-            self.get_default_ttl(),
-        );
-        self.update_cookies();
-    }
-
-    /// Set multiple keys and values in the session data. Will create a new session if there isn't one.
-    pub fn set_keys<I>(&mut self, kv_iter: I)
-    where
-        I: IntoIterator<Item = (K, V)>,
-    {
-        self.get_inner_lock().tap_data_mut(
-            |data| data.get_or_insert_default().extend(kv_iter),
-            self.get_default_ttl(),
-        );
-        self.update_cookies();
-    }
-
-    /// Remove a key from the session data.
-    pub fn remove_key(&mut self, key: K) {
-        self.get_inner_lock().tap_data_mut(
-            |data| data.get_or_insert_default().remove(&key),
-            self.get_default_ttl(),
-        );
-        self.update_cookies();
     }
 }
 

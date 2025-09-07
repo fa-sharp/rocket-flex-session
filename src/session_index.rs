@@ -26,7 +26,7 @@ use crate::{error::SessionError, storage::SessionStorageIndexed, Session};
 ///     }
 /// }
 /// ```
-pub trait SessionIdentifier {
+pub trait SessionIdentifier: Send + Sync + Clone {
     /// The name of the identifier (default: `"user_id"`), that may be used as a field/key name by the storage backend.
     const IDENTIFIER: &str = "user_id";
 
@@ -43,7 +43,7 @@ pub trait SessionIdentifier {
 /// Session implementation block for indexing operations
 impl<'a, T> Session<'a, T>
 where
-    T: SessionIdentifier + Send + Sync + Clone,
+    T: SessionIdentifier,
 {
     /// Get all active sessions for the same user/identifier as the current session.
     /// Returns the session ID, data, and TTL (in seconds) for each session.

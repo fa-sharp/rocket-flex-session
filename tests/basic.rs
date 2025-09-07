@@ -6,13 +6,33 @@ use rocket::{
     local::blocking::Client,
     {routes, Build, Rocket},
 };
-use rocket_flex_session::{storage::cookie::CookieStorage, RocketFlexSession, Session};
+use rocket_flex_session::{
+    storage::cookie::CookieStorage, RocketFlexSession, Session, SessionHashMap,
+};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 #[derive(Clone, Debug, PartialEq)]
 struct User {
     id: String,
     name: String,
+}
+
+#[derive(Clone, Default, Serialize, Deserialize)]
+struct SessionHash(HashMap<String, String>);
+
+impl SessionHashMap for SessionHash {
+    type Value = String;
+
+    fn get(&self, key: &str) -> Option<&Self::Value> {
+        self.0.get(key)
+    }
+    fn insert(&mut self, key: String, value: Self::Value) {
+        self.0.insert(key, value);
+    }
+    fn remove(&mut self, key: &str) {
+        self.0.remove(key);
+    }
 }
 
 #[get("/get_session")]
@@ -39,7 +59,7 @@ fn delete_session(mut session: Session<User>) -> &'static str {
 }
 
 #[get("/get_hash_session/<key>")]
-fn get_hash_session(session: Session<HashMap<String, String>>, key: &str) -> String {
+fn get_hash_session(session: Session<SessionHash>, key: &str) -> String {
     match session.get_key(key) {
         Some(value) => value,
         None => "No value".to_string(),
@@ -47,11 +67,7 @@ fn get_hash_session(session: Session<HashMap<String, String>>, key: &str) -> Str
 }
 
 #[post("/set_hash_session/<key>/<value>")]
-fn set_hash_session(
-    mut session: Session<HashMap<String, String>>,
-    key: &str,
-    value: &str,
-) -> &'static str {
+fn set_hash_session(mut session: Session<SessionHash>, key: &str, value: &str) -> &'static str {
     session.set_key(key.to_owned(), value.to_owned());
     "Hash session value set"
 }
@@ -60,7 +76,7 @@ fn create_rocket() -> Rocket<Build> {
     rocket::build()
         .attach(RocketFlexSession::<User>::default())
         .attach(
-            RocketFlexSession::<HashMap<String, String>>::builder()
+            RocketFlexSession::<SessionHash>::builder()
                 .with_options(|opt| opt.cookie_name = "hash_session".to_owned())
                 .storage(
                     CookieStorage::builder()

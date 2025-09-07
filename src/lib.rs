@@ -104,21 +104,36 @@ For more info and examples of this powerful pattern, please see Rocket's documen
 
 ## HashMap session data
 
-Instead of a custom struct, you can use a [HashMap](std::collections::HashMap) as your Session data type if the
-storage provider supports it. This is particularly useful if you expect your session data structure to be inconsistent and/or change frequently.
-When using a HashMap, there are [some additional helper functions](file:///Users/farshad/Projects/pg-user-manager/api/target/doc/rocket_flex_session/struct.Session.html#method.get_key)
-to read and set keys.
+If your session data has a hashmap data structure, you can implement [`SessionHashMap`] which will
+add [additional helper methods](Session::get_key) to Session to read and set keys. This is particularly useful if you expect your
+session data structure to be inconsistent and/or change frequently.
 
 ```
-use rocket_flex_session::Session;
+use rocket_flex_session::{Session, SessionHashMap};
 use std::collections::HashMap;
 
-type MySessionData = HashMap<String, String>;
+#[derive(Clone, Default)]
+struct MySession(HashMap<String, String>);
+
+impl SessionHashMap for MySession {
+    type Value = String;
+
+    fn get(&self, key: &str) -> Option<&Self::Value> {
+        self.0.get(key)
+    }
+    fn insert(&mut self, key: String, value: Self::Value) {
+        self.0.insert(key, value);
+    }
+    fn remove(&mut self, key: &str) {
+        self.0.remove(key);
+    }
+}
 
 #[rocket::post("/login")]
-fn login(mut session: Session<MySessionData>) {
+fn login(mut session: Session<MySession>) {
     let user_id: Option<String> = session.get_key("user_id");
     session.set_key("name".to_owned(), "Bob".to_owned());
+    session.remove_key("foobar");
 }
 ```
 
@@ -182,14 +197,14 @@ This crate supports multiple storage backends with different capabilities:
 
 ## Available Storage Providers
 
-| Storage | Feature Flag | Indexing support | HashMap support | Use Cases |
-|---------|-------------|------------------|----------|----------|
-| [`storage::memory::MemoryStorage`] | Built-in | ❌ | ✅ | Development, testing |
-| [`storage::memory::MemoryStorageIndexed`] | Built-in | ✅ | ❌ | Development with indexing features |
-| [`storage::cookie::CookieStorage`] | `cookie` | ❌ | ✅ | Client-side storage, stateless servers |
-| [`storage::redis::RedisFredStorage`] | `redis_fred` | ❌ | ✅ | Production, distributed systems |
-| [`storage::redis::RedisFredStorageIndexed`] | `redis_fred` | ✅ | ❌ | Production, distributed systems |
-| [`storage::sqlx::SqlxPostgresStorage`] | `sqlx_postgres` | ✅ | ❌ | Production, existing database |
+| Storage | Feature Flag | Indexing support | Use Cases |
+|---------|-------------|------------------|------------|
+| [`storage::memory::MemoryStorage`] | Built-in | ❌ | Development, testing |
+| [`storage::memory::MemoryStorageIndexed`] | Built-in | ✅ | Development with indexing features |
+| [`storage::cookie::CookieStorage`] | `cookie` | ❌ | Client-side storage, stateless servers |
+| [`storage::redis::RedisFredStorage`] | `redis_fred` | ❌ | Production, distributed systems |
+| [`storage::redis::RedisFredStorageIndexed`] | `redis_fred` | ✅ | Production, distributed systems |
+| [`storage::sqlx::SqlxPostgresStorage`] | `sqlx_postgres` | ✅ | Production, existing database |
 
 
 ## Custom Storage
@@ -240,8 +255,8 @@ impl<T> SessionStorageIndexed<T> for MyCustomStorage
 where
     T: SessionIdentifier + Send + Sync + Clone + 'static,
 {
-    async fn get_sessions_by_identifier(&self, id: &T::Id) -> SessionResult<Vec<(String, T)>> {
-        // Return all (session_id, session_data) pairs for the identifier
+    async fn get_sessions_by_identifier(&self, id: &T::Id) -> SessionResult<Vec<(String, T, u32)>> {
+        // Return all sessions (session_id, session_data, session_ttl) for the given identifier
         todo!()
     }
     // etc...
@@ -263,12 +278,11 @@ where
 
 ### Implementation Tips
 
-1. **Thread Safety**: All storage implementations must be `Send + Sync`
-2. **Trait bounds**: Add additional trait bounds to the session data type as needed
-3. **Error Handling**: Use [`error::SessionError::Backend`] for custom errors
-4. **TTL Handling**: Respect the TTL parameters in `load` and `save` for session expiration
-5. **Indexing Consistency**: Keep identifier indexes in sync with session data
-6. **Cleanup**: Implement proper cleanup in `shutdown()` if needed
+1. **Trait bounds**: Add additional trait bounds to the session data type `<T>` as needed
+2. **Error Handling**: Use [`error::SessionError::Backend`] for custom errors
+3. **TTL Handling**: Respect the TTL parameters in `load` and `save` for session expiration
+4. **Indexing Consistency**: Keep identifier indexes in sync with session data
+5. **Cleanup**: Implement proper cleanup in `shutdown()` if needed
 
 # Feature flags
 
@@ -287,6 +301,7 @@ mod fairing;
 mod guard;
 mod options;
 mod session;
+mod session_hash;
 mod session_index;
 mod session_inner;
 
@@ -295,4 +310,5 @@ pub mod storage;
 pub use fairing::{RocketFlexSession, RocketFlexSessionBuilder};
 pub use options::RocketFlexSessionOptions;
 pub use session::Session;
+pub use session_hash::SessionHashMap;
 pub use session_index::SessionIdentifier;
