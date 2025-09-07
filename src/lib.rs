@@ -185,9 +185,10 @@ This crate supports multiple storage backends with different capabilities:
 | Storage | Feature Flag | Indexing support | HashMap support | Use Cases |
 |---------|-------------|------------------|----------|----------|
 | [`storage::memory::MemoryStorage`] | Built-in | ❌ | ✅ | Development, testing |
-| [`storage::memory::MemoryStorageIndexed`] | Built-in | ✅ | ✅ | Development with indexing features |
+| [`storage::memory::MemoryStorageIndexed`] | Built-in | ✅ | ❌ | Development with indexing features |
 | [`storage::cookie::CookieStorage`] | `cookie` | ❌ | ✅ | Client-side storage, stateless servers |
 | [`storage::redis::RedisFredStorage`] | `redis_fred` | ❌ | ✅ | Production, distributed systems |
+| [`storage::redis::RedisFredStorageIndexed`] | `redis_fred` | ✅ | ❌ | Production, distributed systems |
 | [`storage::sqlx::SqlxPostgresStorage`] | `sqlx_postgres` | ✅ | ❌ | Production, existing database |
 
 

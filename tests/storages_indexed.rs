@@ -32,9 +32,11 @@ impl SessionIdentifier for TestSession {
 }
 
 // Impls for Sqlx
-impl ToString for TestSession {
-    fn to_string(&self) -> String {
-        format!("{}:{}", self.user_id, self.data)
+impl TryFrom<TestSession> for String {
+    type Error = std::io::Error;
+
+    fn try_from(value: TestSession) -> Result<Self, Self::Error> {
+        Ok(format!("{}:{}", value.user_id, value.data))
     }
 }
 impl TryFrom<String> for TestSession {

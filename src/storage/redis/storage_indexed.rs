@@ -7,15 +7,27 @@ use crate::{
     SessionIdentifier,
 };
 
-use super::{RedisFredStorage, RedisFredStorageIndexed};
+use super::RedisFredStorage;
 
 const DEFAULT_INDEX_TTL: u32 = 60 * 60 * 24 * 7 * 2; // 2 weeks
+
+/// Redis session storage using the [fred.rs](https://docs.rs/fred) crate. This is a wrapper around
+/// [`RedisFredStorage`] that adds support for indexing sessions by an identifier (e.g. `user_id`).
+///
+/// In addition to the requirements for `RedisFredStorage`, your session data type must
+/// implement [`SessionIdentifier`], and its [Id](`SessionIdentifier::Id`) type
+/// must implement `ToString`. Sessions are tracked in Redis sets, with a key format of
+/// `<key_prefix><identifier_name>:<id>`. e.g.: `sess:user_id:1`
+pub struct RedisFredStorageIndexed {
+    base_storage: RedisFredStorage,
+    index_ttl: u32,
+}
 
 impl RedisFredStorageIndexed {
     /// Create the indexed storage.
     ///
     /// # Parameters:
-    /// - `base_storage`: The base storage to use for session data.
+    /// - `base_storage`: The [`RedisFredStorage`] instance to use.
     /// - `index_ttl`: The TTL for the session index - should match
     /// your longest expected session duration (default: 2 weeks).
     pub fn new(base_storage: RedisFredStorage, index_ttl: Option<u32>) -> Self {
@@ -108,6 +120,29 @@ where
     <T as TryInto<Value>>::Error: std::error::Error + Send + Sync + 'static,
     <T as SessionIdentifier>::Id: ToString,
 {
+    async fn get_session_ids_by_identifier(&self, id: &T::Id) -> SessionResult<Vec<String>> {
+        let (session_ids, index_key) = self.fetch_session_index(T::IDENTIFIER, id).await?;
+
+        let session_exist_pipeline = self.base_storage.pool.next().pipeline();
+        for session_id in &session_ids {
+            let session_key = self.base_storage.session_key(&session_id);
+            let _: () = session_exist_pipeline.exists(&session_key).await?;
+        }
+        let session_exist_results: Vec<bool> = session_exist_pipeline.all().await?;
+
+        let (existing_sessions, stale_sessions): (Vec<_>, Vec<_>) = session_ids
+            .into_iter()
+            .zip(session_exist_results.into_iter())
+            .partition(|(_, exists)| *exists);
+        if !stale_sessions.is_empty() {
+            let stale_ids: Vec<_> = stale_sessions.into_iter().map(|(id, _)| id).collect();
+            self.cleanup_session_index(&index_key, stale_ids).await?;
+        }
+
+        let sessions = existing_sessions.into_iter().map(|(id, _)| id).collect();
+        Ok(sessions)
+    }
+
     async fn get_sessions_by_identifier(&self, id: &T::Id) -> SessionResult<Vec<(String, T, u32)>> {
         let (session_ids, index_key) = self.fetch_session_index(T::IDENTIFIER, id).await?;
 
@@ -146,29 +181,6 @@ where
                 (id, data, ttl.try_into().unwrap_or(0))
             })
             .collect();
-        Ok(sessions)
-    }
-
-    async fn get_session_ids_by_identifier(&self, id: &T::Id) -> SessionResult<Vec<String>> {
-        let (session_ids, index_key) = self.fetch_session_index(T::IDENTIFIER, id).await?;
-
-        let session_exist_pipeline = self.base_storage.pool.next().pipeline();
-        for session_id in &session_ids {
-            let session_key = self.base_storage.session_key(&session_id);
-            let _: () = session_exist_pipeline.exists(&session_key).await?;
-        }
-        let session_exist_results: Vec<bool> = session_exist_pipeline.all().await?;
-
-        let (existing_sessions, stale_sessions): (Vec<_>, Vec<_>) = session_ids
-            .into_iter()
-            .zip(session_exist_results.into_iter())
-            .partition(|(_, exists)| *exists);
-        if !stale_sessions.is_empty() {
-            let stale_ids: Vec<_> = stale_sessions.into_iter().map(|(id, _)| id).collect();
-            self.cleanup_session_index(&index_key, stale_ids).await?;
-        }
-
-        let sessions = existing_sessions.into_iter().map(|(id, _)| id).collect();
         Ok(sessions)
     }
 
