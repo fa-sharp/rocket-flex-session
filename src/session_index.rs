@@ -28,7 +28,7 @@ use crate::{error::SessionError, storage::SessionStorageIndexed, Session};
 /// ```
 pub trait SessionIdentifier {
     /// The name of the identifier (default: `"user_id"`), that may be used as a field/key name by the storage backend.
-    const NAME: &str = "user_id";
+    const IDENTIFIER: &str = "user_id";
 
     /// The type of the identifier
     type Id: Send + Sync + Clone;

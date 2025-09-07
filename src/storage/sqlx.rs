@@ -1,4 +1,4 @@
-//! Session storage in PostgreSQL via sqlx
+//! Session storage via sqlx
 
 use rocket::{
     async_trait,
@@ -130,7 +130,7 @@ where
                 {DATA_COLUMN} = EXCLUDED.{DATA_COLUMN}, \
                 {EXPIRES_COLUMN} = EXCLUDED.{EXPIRES_COLUMN}",
             self.table_name,
-            T::NAME
+            T::IDENTIFIER
         );
         sqlx::query(&sql)
             .bind(id)
@@ -154,24 +154,23 @@ where
         let Some(cleanup_interval) = self.cleanup_interval else {
             return Ok(());
         };
-        let (tx, rx) = oneshot::channel();
+        let (tx, mut rx) = oneshot::channel();
         let pool = self.pool.clone();
         let table_name = self.table_name.clone();
         tokio::spawn(async move {
             rocket::info!("Starting session cleanup monitor");
             let mut interval = interval(cleanup_interval);
-            tokio::select! {
-                _ = async {
-                    loop {
-                        interval.tick().await;
+            loop {
+                tokio::select! {
+                    _ = interval.tick() => {
                         rocket::debug!("Cleaning up expired sessions");
                         if let Err(e) = cleanup_expired_sessions(&table_name, &pool).await {
                             rocket::error!("Error deleting expired sessions: {e}");
                         }
                     }
-                } => (),
-                _ = rx => {
-                    rocket::info!("Session cleanup monitor shutdown");
+                    _ = &mut rx => {
+                        rocket::info!("Session cleanup monitor shutdown");
+                    }
                 }
             }
         });
@@ -213,7 +212,7 @@ where
             "SELECT {ID_COLUMN}, {DATA_COLUMN} FROM \"{}\" \
             WHERE {} = $1 AND {EXPIRES_COLUMN} > CURRENT_TIMESTAMP",
             &self.table_name,
-            T::NAME
+            T::IDENTIFIER
         );
         let rows = sqlx::query(&sql).bind(id).fetch_all(&self.pool).await?;
         let parsed_rows = rows
@@ -234,7 +233,7 @@ where
             "SELECT {ID_COLUMN} FROM \"{}\" \
             WHERE {} = $1 AND {EXPIRES_COLUMN} > CURRENT_TIMESTAMP",
             &self.table_name,
-            T::NAME
+            T::IDENTIFIER
         );
         let rows = sqlx::query(&sql).bind(id).fetch_all(&self.pool).await?;
         let parsed_rows = rows
@@ -253,7 +252,7 @@ where
         let mut sql = format!(
             "DELETE FROM \"{}\" WHERE {} = $1",
             &self.table_name,
-            T::NAME
+            T::IDENTIFIER
         );
         if excluded_session_id.is_some() {
             sql.push_str(&format!(" AND {ID_COLUMN} != $2"));

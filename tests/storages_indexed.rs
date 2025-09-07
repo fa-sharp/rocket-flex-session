@@ -1,15 +1,22 @@
 mod common;
 
-use std::{future::Future, pin::Pin};
+use std::{collections::HashMap, future::Future, pin::Pin};
 
 use rocket::{futures::FutureExt, local::asynchronous::Client};
 use rocket_flex_session::{
-    storage::{memory::MemoryStorageIndexed, sqlx::SqlxPostgresStorage, SessionStorageIndexed},
+    storage::{
+        memory::MemoryStorageIndexed,
+        redis::{RedisFredStorage, RedisFredStorageIndexed, RedisType},
+        sqlx::SqlxPostgresStorage,
+        SessionStorageIndexed,
+    },
     SessionIdentifier,
 };
 use test_case::test_case;
 
-use crate::common::{setup_postgres, teardown_postgres, POSTGRES_URL};
+use crate::common::{
+    setup_postgres, setup_redis_fred, teardown_postgres, teardown_redis_fred, POSTGRES_URL,
+};
 
 #[derive(Clone, Debug, PartialEq)]
 struct TestSession {
@@ -23,6 +30,8 @@ impl SessionIdentifier for TestSession {
         Some(&self.user_id)
     }
 }
+
+// Impls for Sqlx
 impl ToString for TestSession {
     fn to_string(&self) -> String {
         format!("{}:{}", self.user_id, self.data)
@@ -43,6 +52,27 @@ impl TryFrom<String> for TestSession {
     }
 }
 
+// Impls for fred.rs Redis
+const USER_ID_KEY: fred::prelude::Key = fred::types::Key::from_static_str("user_id");
+const DATA_KEY: fred::prelude::Key = fred::types::Key::from_static_str("data");
+impl fred::types::FromValue for TestSession {
+    fn from_value(value: fred::prelude::Value) -> Result<Self, fred::prelude::Error> {
+        let mut map = value.into_map()?;
+        Ok(Self {
+            user_id: map.remove(&USER_ID_KEY).unwrap().convert()?,
+            data: map.remove(&DATA_KEY).unwrap().convert()?,
+        })
+    }
+}
+impl From<TestSession> for fred::types::Value {
+    fn from(value: TestSession) -> Self {
+        let hash: HashMap<fred::prelude::Key, String> =
+            HashMap::from([(USER_ID_KEY, value.user_id), (DATA_KEY, value.data)]);
+        let fred_map = fred::types::Map::try_from(hash).unwrap();
+        fred::types::Value::Map(fred_map)
+    }
+}
+
 async fn create_storage(
     storage_case: &str,
 ) -> (
@@ -53,6 +83,13 @@ async fn create_storage(
         "memory" => {
             let storage = MemoryStorageIndexed::<TestSession>::default();
             (Box::new(storage), None)
+        }
+        "redis" => {
+            let (pool, prefix) = setup_redis_fred().await;
+            let base_storage = RedisFredStorage::new(pool.clone(), RedisType::Hash, &prefix);
+            let storage = RedisFredStorageIndexed::new(base_storage);
+            let cleanup_task = teardown_redis_fred(pool, prefix).boxed();
+            (Box::new(storage), Some(cleanup_task))
         }
         "sqlx" => {
             let (pool, db_name) = setup_postgres(POSTGRES_URL).await;
@@ -66,6 +103,7 @@ async fn create_storage(
 
 #[test_case("memory"; "Memory")]
 #[test_case("sqlx"; "Sqlx Postgres")]
+#[test_case("redis"; "Redis Fred")]
 #[rocket::async_test]
 async fn basic_operations(storage_case: &str) {
     let (storage, cleanup_task) = create_storage(storage_case).await;
@@ -128,6 +166,7 @@ async fn basic_operations(storage_case: &str) {
 
 #[test_case("memory"; "Memory")]
 #[test_case("sqlx"; "Sqlx Postgres")]
+#[test_case("redis"; "Redis Fred")]
 #[rocket::async_test]
 async fn invalidate_by_identifier(storage_case: &str) {
     let (storage, cleanup_task) = create_storage(storage_case).await;
@@ -196,6 +235,7 @@ async fn invalidate_by_identifier(storage_case: &str) {
 
 #[test_case("memory"; "Memory")]
 #[test_case("sqlx"; "Sqlx Postgres")]
+#[test_case("redis"; "Redis Fred")]
 #[rocket::async_test]
 async fn invalidate_all_but_one_by_identifier(storage_case: &str) {
     let (storage, cleanup_task) = create_storage(storage_case).await;
@@ -254,6 +294,7 @@ async fn invalidate_all_but_one_by_identifier(storage_case: &str) {
 
 #[test_case("memory"; "Memory")]
 #[test_case("sqlx"; "Sqlx Postgres")]
+#[test_case("redis"; "Redis Fred")]
 #[rocket::async_test]
 async fn delete_single_session(storage_case: &str) {
     let client = Client::tracked(rocket::build()).await.unwrap();
@@ -304,6 +345,7 @@ async fn delete_single_session(storage_case: &str) {
 
 #[test_case("memory"; "Memory")]
 #[test_case("sqlx"; "Sqlx Postgres")]
+#[test_case("redis"; "Redis Fred")]
 #[rocket::async_test]
 async fn nonexistent_identifier(storage_case: &str) {
     let (storage, cleanup_task) = create_storage(storage_case).await;

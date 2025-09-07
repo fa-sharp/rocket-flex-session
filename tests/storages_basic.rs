@@ -5,7 +5,6 @@ extern crate rocket;
 
 use std::{future::Future, pin::Pin};
 
-use fred::prelude::{ClientLike, ReconnectPolicy};
 use rocket::{
     futures::FutureExt, http::Status, local::asynchronous::Client, tokio::time::sleep, Build,
     Rocket,
@@ -14,7 +13,7 @@ use rocket_flex_session::{
     error::SessionError,
     storage::{
         cookie::CookieStorage,
-        redis::{RedisFredStorage, RedisType},
+        redis::{RedisFredStorage, RedisFredStorageIndexed, RedisType},
         sqlx::SqlxPostgresStorage,
     },
     RocketFlexSession, Session, SessionIdentifier,
@@ -22,7 +21,9 @@ use rocket_flex_session::{
 use serde::{Deserialize, Serialize};
 use test_case::test_case;
 
-use crate::common::{setup_postgres, teardown_postgres, POSTGRES_URL};
+use crate::common::{
+    setup_postgres, setup_redis_fred, teardown_postgres, teardown_redis_fred, POSTGRES_URL,
+};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 struct SessionData {
@@ -59,7 +60,7 @@ impl From<SessionData> for fred::types::Value {
     }
 }
 impl SessionIdentifier for SessionData {
-    const NAME: &str = "user_id";
+    const IDENTIFIER: &str = "user_id";
     type Id = String;
     fn identifier(&self) -> Option<&Self::Id> {
         Some(&self.user_id)
@@ -107,22 +108,22 @@ async fn create_rocket(
             None,
         ),
         "redis" => {
-            let pool = fred::prelude::Builder::default_centralized()
-                .set_policy(ReconnectPolicy::new_linear(3, 5, 1))
-                .with_performance_config(|c| {
-                    c.default_command_timeout = std::time::Duration::from_secs(5)
-                })
-                .build_pool(3)
-                .expect("Should build Redis pool");
-            pool.init().await.expect("Should initialize Redis pool");
-            let storage = RedisFredStorage::new(pool.clone(), RedisType::String, "sess:");
+            let (pool, prefix) = setup_redis_fred().await;
+            let storage = RedisFredStorage::new(pool.clone(), RedisType::String, &prefix);
             let fairing = RocketFlexSession::<SessionData>::builder()
                 .storage(storage)
                 .build();
-            let cleanup_task = async move {
-                pool.quit().await.ok();
-            }
-            .boxed();
+            let cleanup_task = teardown_redis_fred(pool, prefix).boxed();
+            (fairing, Some(cleanup_task))
+        }
+        "redis_indexed" => {
+            let (pool, prefix) = setup_redis_fred().await;
+            let base_storage = RedisFredStorage::new(pool.clone(), RedisType::String, &prefix);
+            let storage = RedisFredStorageIndexed::new(base_storage);
+            let fairing = RocketFlexSession::<SessionData>::builder()
+                .storage(storage)
+                .build();
+            let cleanup_task = teardown_redis_fred(pool, prefix).boxed();
             (fairing, Some(cleanup_task))
         }
         "sqlx" => {
@@ -146,7 +147,8 @@ async fn create_rocket(
 }
 
 #[test_case("cookie"; "Cookie")]
-#[test_case("redis"; "Fred Redis")]
+#[test_case("redis"; "Redis Fred")]
+#[test_case("redis_indexed"; "Redis Fred Indexed")]
 #[test_case("sqlx"; "Sqlx Postgres")]
 #[rocket::async_test]
 async fn test_storages(storage_case: &str) {

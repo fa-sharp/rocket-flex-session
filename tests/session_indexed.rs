@@ -15,7 +15,7 @@ struct UserSession {
 }
 
 impl SessionIdentifier for UserSession {
-    const NAME: &str = "user_id";
+    const IDENTIFIER: &str = "user_id";
     type Id = String;
 
     fn identifier(&self) -> Option<&Self::Id> {
@@ -31,7 +31,7 @@ struct AdminSession {
 }
 
 impl SessionIdentifier for AdminSession {
-    const NAME: &str = "admin_id";
+    const IDENTIFIER: &str = "admin_id";
     type Id = String;
 
     fn identifier(&self) -> Option<&Self::Id> {

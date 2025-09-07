@@ -101,13 +101,6 @@ where
     }
 }
 
-impl<T> MemoryStorage<T> {
-    /// Get access to the underlying cache for indexed operations
-    pub(crate) fn cache(&self) -> &Cache<String, T> {
-        &self.cache
-    }
-}
-
 /// Extended in-memory storage that supports session indexing by identifier.
 /// This allows for operations like retrieving all sessions for a user or
 /// bulk invalidation of sessions.
@@ -252,7 +245,7 @@ where
 
         let mut sessions: Vec<(String, T)> = Vec::new();
         for session_id in session_ids {
-            if let Some(data) = self.base_storage.cache().get(&session_id).await {
+            if let Some(data) = self.base_storage.cache.get(&session_id).await {
                 sessions.push((session_id, data.value().to_owned()));
             }
         }
@@ -286,7 +279,7 @@ where
 
         // Remove all sessions from cache
         for session_id in &session_ids_to_remove {
-            self.base_storage.cache().remove(session_id).await;
+            self.base_storage.cache.remove(session_id).await;
         }
 
         // Remove all sessions from index
