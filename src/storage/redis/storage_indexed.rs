@@ -108,7 +108,7 @@ where
     <T as TryInto<Value>>::Error: std::error::Error + Send + Sync + 'static,
     <T as SessionIdentifier>::Id: ToString,
 {
-    async fn get_sessions_by_identifier(&self, id: &T::Id) -> SessionResult<Vec<(String, T)>> {
+    async fn get_sessions_by_identifier(&self, id: &T::Id) -> SessionResult<Vec<(String, T, u32)>> {
         let (session_ids, index_key) = self.fetch_session_index(T::IDENTIFIER, id).await?;
 
         let session_value_pipeline = self.base_storage.pool.next().pipeline();
@@ -118,14 +118,22 @@ where
                 super::RedisType::String => session_value_pipeline.get(&session_key).await?,
                 super::RedisType::Hash => session_value_pipeline.hgetall(&session_key).await?,
             };
+            let _: () = session_value_pipeline.ttl(&session_key).await?;
         }
-        let session_values: Vec<Option<Value>> = session_value_pipeline.all().await?;
+        let mut raw_values_and_ttls: Vec<Option<Value>> = session_value_pipeline.all().await?;
 
         let (existing_sessions, stale_sessions): (Vec<_>, Vec<_>) = session_ids
             .into_iter()
-            .zip(session_values.into_iter())
-            .map(|(id, value)| (id, value.and_then(|v| T::from_value(v).ok())))
-            .partition(|(_, data)| data.is_some());
+            .zip(raw_values_and_ttls.chunks_exact_mut(2))
+            .map(|(id, raw)| {
+                let data_and_ttl = raw[0].take().and_then(|val| {
+                    let data = T::from_value(val).ok()?;
+                    let ttl = raw[1].as_ref().and_then(Value::as_i64)?;
+                    Some((data, ttl))
+                });
+                (id, data_and_ttl)
+            })
+            .partition(|(_, data_and_ttl)| data_and_ttl.is_some());
         if !stale_sessions.is_empty() {
             let stale_ids: Vec<_> = stale_sessions.into_iter().map(|(id, _)| id).collect();
             self.cleanup_session_index(&index_key, stale_ids).await?;
@@ -133,7 +141,10 @@ where
 
         let sessions = existing_sessions
             .into_iter()
-            .map(|(id, data)| (id, data.expect("already checked by partition")))
+            .map(|(id, data_and_ttl)| {
+                let (data, ttl) = data_and_ttl.expect("already checked by partition");
+                (id, data, ttl.try_into().unwrap_or(0))
+            })
             .collect();
         Ok(sessions)
     }

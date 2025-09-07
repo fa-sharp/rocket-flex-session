@@ -135,10 +135,10 @@ async fn basic_operations(storage_case: &str) {
     assert_eq!(user1_sessions.len(), 2);
     assert!(user1_sessions
         .iter()
-        .any(|(id, data)| id == "sid1" && data == &session1));
+        .any(|(id, data, ttl)| id == "sid1" && data == &session1 && *ttl <= 3600));
     assert!(user1_sessions
         .iter()
-        .any(|(id, data)| id == "sid2" && data == &session2));
+        .any(|(id, data, ttl)| id == "sid2" && data == &session2 && *ttl <= 3600));
 
     let user2_sessions = storage
         .get_sessions_by_identifier(&"user2".to_string())
@@ -147,7 +147,7 @@ async fn basic_operations(storage_case: &str) {
     assert_eq!(user2_sessions.len(), 1);
     assert!(user2_sessions
         .iter()
-        .any(|(id, data)| id == "sid3" && data == &session3));
+        .any(|(id, data, ttl)| id == "sid3" && data == &session3 && *ttl <= 3600));
 
     // Test get_session_ids_by_identifier
     let user1_session_ids = storage
@@ -225,7 +225,8 @@ async fn invalidate_by_identifier(storage_case: &str) {
         .await
         .unwrap();
     assert_eq!(user2_sessions.len(), 1);
-    assert_eq!(user2_sessions[0], ("sid3".to_string(), session3));
+    assert_eq!(user2_sessions[0].0, "sid3");
+    assert_eq!(user2_sessions[0].1, session3);
 
     storage.shutdown().await.unwrap();
     if let Some(task) = cleanup_task {
@@ -284,7 +285,8 @@ async fn invalidate_all_but_one_by_identifier(storage_case: &str) {
         .await
         .unwrap();
     assert_eq!(user1_sessions.len(), 1);
-    assert_eq!(user1_sessions[0], ("sid3".to_string(), session3));
+    assert_eq!(user1_sessions[0].0, "sid3");
+    assert_eq!(user1_sessions[0].1, session3);
 
     storage.shutdown().await.unwrap();
     if let Some(task) = cleanup_task {
@@ -335,7 +337,7 @@ async fn delete_single_session(storage_case: &str) {
     assert_eq!(remaining_sessions.len(), 1);
     assert!(remaining_sessions
         .iter()
-        .any(|(id, data)| id == "sid2" && data == &session2));
+        .any(|(id, data, ttl)| id == "sid2" && data == &session2 && *ttl <= 3600));
 
     storage.shutdown().await.unwrap();
     if let Some(task) = cleanup_task {

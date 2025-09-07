@@ -237,16 +237,17 @@ where
     T: SessionIdentifier + Clone + Send + Sync,
     T::Id: ToString,
 {
-    async fn get_sessions_by_identifier(&self, id: &T::Id) -> SessionResult<Vec<(String, T)>> {
+    async fn get_sessions_by_identifier(&self, id: &T::Id) -> SessionResult<Vec<(String, T, u32)>> {
         let session_ids = {
             let index = self.identifier_index.lock().unwrap();
             index.get(&id.to_string()).cloned().unwrap_or_default()
         };
 
-        let mut sessions: Vec<(String, T)> = Vec::new();
+        let mut sessions: Vec<(String, T, u32)> = Vec::new();
         for session_id in session_ids {
             if let Some(data) = self.base_storage.cache.get(&session_id).await {
-                sessions.push((session_id, data.value().to_owned()));
+                let secs = data.expiration().remaining().unwrap().as_secs();
+                sessions.push((session_id, data.value().to_owned(), secs as u32));
             }
         }
 

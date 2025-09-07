@@ -9,7 +9,7 @@ use rocket::{
         time::interval,
     },
 };
-use sqlx::{PgPool, Row};
+use sqlx::{postgres::PgRow, PgPool, Row};
 use time::{Duration, OffsetDateTime};
 
 use crate::{
@@ -61,6 +61,23 @@ impl SqlxPostgresStorage {
             shutdown_tx: Mutex::default(),
         }
     }
+
+    fn id_from_row(&self, row: &PgRow) -> sqlx::Result<String> {
+        row.try_get(ID_COLUMN)
+    }
+
+    fn raw_data_from_row(&self, row: &PgRow) -> sqlx::Result<String> {
+        row.try_get(DATA_COLUMN)
+    }
+
+    fn ttl_from_row(&self, row: &PgRow) -> sqlx::Result<u32> {
+        let expires: OffsetDateTime = row.try_get(EXPIRES_COLUMN)?;
+        let ttl = (expires - OffsetDateTime::now_utc())
+            .whole_seconds()
+            .try_into()
+            .unwrap_or(0);
+        Ok(ttl)
+    }
 }
 
 const ID_COLUMN: &str = "id";
@@ -108,18 +125,16 @@ where
             }
         };
 
-        let (raw_str, expires) = match row {
+        let (raw_str, ttl) = match row {
             Some(row) => {
-                let data: String = row.try_get(DATA_COLUMN)?;
-                let expires: OffsetDateTime = row.try_get(EXPIRES_COLUMN)?;
-                (data, expires)
+                let data = self.raw_data_from_row(&row)?;
+                let ttl = self.ttl_from_row(&row)?;
+                (data, ttl)
             }
             None => return Err(SessionError::NotFound),
         };
         let data = T::try_from(raw_str).map_err(|e| SessionError::Serialization(Box::new(e)))?;
-        let ttl = (expires - OffsetDateTime::now_utc()).whole_seconds();
-
-        Ok((data, ttl.try_into().unwrap_or(0)))
+        Ok((data, ttl))
     }
 
     async fn save(&self, id: &str, data: T, ttl: u32) -> SessionResult<()> {
@@ -207,9 +222,9 @@ where
         for<'q> sqlx::Encode<'q, sqlx::Postgres> + sqlx::Type<sqlx::Postgres>,
     <T as TryFrom<String>>::Error: std::error::Error + Send + Sync + 'static,
 {
-    async fn get_sessions_by_identifier(&self, id: &T::Id) -> SessionResult<Vec<(String, T)>> {
+    async fn get_sessions_by_identifier(&self, id: &T::Id) -> SessionResult<Vec<(String, T, u32)>> {
         let sql = format!(
-            "SELECT {ID_COLUMN}, {DATA_COLUMN} FROM \"{}\" \
+            "SELECT {ID_COLUMN}, {DATA_COLUMN}, {EXPIRES_COLUMN} FROM \"{}\" \
             WHERE {} = $1 AND {EXPIRES_COLUMN} > CURRENT_TIMESTAMP",
             &self.table_name,
             T::IDENTIFIER
@@ -218,10 +233,11 @@ where
         let parsed_rows = rows
             .into_iter()
             .filter_map(|row| {
-                let id: String = row.try_get(0).ok()?;
-                let raw_data: String = row.try_get(1).ok()?;
+                let id = self.id_from_row(&row).ok()?;
+                let raw_data = self.raw_data_from_row(&row).ok()?;
                 let data = T::try_from(raw_data).ok()?;
-                Some((id, data))
+                let ttl = self.ttl_from_row(&row).ok()?;
+                Some((id, data, ttl))
             })
             .collect();
 
@@ -238,7 +254,7 @@ where
         let rows = sqlx::query(&sql).bind(id).fetch_all(&self.pool).await?;
         let parsed_rows = rows
             .into_iter()
-            .filter_map(|row| row.try_get(0).ok())
+            .filter_map(|row| self.id_from_row(&row).ok())
             .collect();
 
         Ok(parsed_rows)

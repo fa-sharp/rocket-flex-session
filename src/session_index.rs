@@ -44,9 +44,10 @@ impl<'a, T> Session<'a, T>
 where
     T: SessionIdentifier + Send + Sync + Clone,
 {
-    /// Get all session IDs and data for the same identifier as the current session.
-    /// Returns `None` if there's no session or the session isn't indexed.
-    pub async fn get_all_sessions(&self) -> Result<Option<Vec<(String, T)>>, SessionError> {
+    /// Get all active sessions for the same user/identifier as the current session.
+    /// Returns the session ID, data, and TTL (in seconds) for each session.
+    /// Returns `None` if there's no current session or the session isn't indexed.
+    pub async fn get_all_sessions(&self) -> Result<Option<Vec<(String, T, u32)>>, SessionError> {
         let Some(identifier) = self.get_identifier() else {
             return Ok(None);
         };
@@ -56,8 +57,8 @@ where
         Ok(Some(sessions))
     }
 
-    /// Get all session IDs for the same identifier as the current session.
-    /// Returns `None` if there's no session or the session isn't indexed.
+    /// Get all active session IDs for the same user/identifier as the current session.
+    /// Returns `None` if there's no current session or the session isn't indexed.
     pub async fn get_all_session_ids(&self) -> Result<Option<Vec<String>>, SessionError> {
         let Some(identifier) = self.get_identifier() else {
             return Ok(None);
@@ -68,8 +69,8 @@ where
         Ok(Some(session_ids))
     }
 
-    /// Invalidate all sessions with the same identifier as the current session, optionally keeping the current session active.
-    /// Returns the number of sessions invalidated, or `None` if there's no session or the session isn't indexed.
+    /// Invalidate all sessions with the same user/identifier as the current session, optionally keeping the current session active.
+    /// Returns the number of sessions invalidated, or `None` if there's no current session or the session isn't indexed.
     pub async fn invalidate_all_sessions(
         &self,
         keep_current: bool,
@@ -88,16 +89,16 @@ where
         Ok(Some(num_sessions))
     }
 
-    /// Get all session IDs and data for a specific identifier.
+    /// Get all session IDs, data, and TTL (in seconds) for a specific user/identifier.
     pub async fn get_sessions_by_identifier(
         &self,
         identifier: &T::Id,
-    ) -> Result<Vec<(String, T)>, SessionError> {
+    ) -> Result<Vec<(String, T, u32)>, SessionError> {
         let storage = self.get_indexed_storage()?;
         storage.get_sessions_by_identifier(identifier).await
     }
 
-    /// Get all session IDs for a specific identifier.
+    /// Get all session IDs for a specific user/identifier.
     pub async fn get_session_ids_by_identifier(
         &self,
         identifier: &T::Id,
@@ -106,7 +107,7 @@ where
         storage.get_session_ids_by_identifier(identifier).await
     }
 
-    /// Invalidate all sessions for a specific identifier, returning the number of sessions invalidated.
+    /// Invalidate all sessions for a specific user/identifier, returning the number of sessions invalidated.
     pub async fn invalidate_sessions_by_identifier(
         &self,
         identifier: &T::Id,

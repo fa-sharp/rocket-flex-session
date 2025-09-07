@@ -155,7 +155,7 @@ where
         OffsetDateTime::now_utc().saturating_add(Duration::seconds(self.ttl().into()))
     }
 
-    /// Delete the session.
+    /// Delete the current session.
     pub fn delete(&mut self) {
         // Delete inner session data
         let mut inner = self.get_inner_lock();
