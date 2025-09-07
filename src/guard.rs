@@ -1,23 +1,18 @@
-use std::{
-    any::type_name,
-    sync::{Arc, Mutex},
-};
+use std::{any::type_name, sync::Mutex};
 
 use rocket::{
-    http::{Cookie, CookieJar},
+    http::CookieJar,
     request::{FromRequest, Outcome},
     Request,
 };
 
 use crate::{
-    session::Session,
-    session_inner::SessionInner,
-    storage::interface::{SessionError, SessionStorage},
-    RocketFlexSession,
+    error::SessionError, session_inner::SessionInner, storage::SessionStorage, RocketFlexSession,
+    Session,
 };
 
 /// Type of the cached inner session data in Rocket's request local cache
-pub(crate) type LocalCachedSession<T> = (Arc<Mutex<SessionInner<T>>>, Option<SessionError>);
+pub(crate) type LocalCachedSession<T> = (Mutex<SessionInner<T>>, Option<SessionError>);
 
 #[rocket::async_trait]
 impl<'r, T> FromRequest<'r> for Session<'r, T>
@@ -31,24 +26,24 @@ where
         let fairing = get_fairing::<T>(req.rocket());
         let cookie_jar = req.cookies();
 
+        // Use rocket's local cache so that the session data is only fetched once per request
         let (cached_inner, session_error): &LocalCachedSession<T> = req
             .local_cache_async(async {
-                let session_cookie = cookie_jar.get_private(&fairing.options.cookie_name);
-                get_session_data(
-                    session_cookie,
+                fetch_session_data(
+                    cookie_jar,
+                    &fairing.options.cookie_name,
                     fairing
                         .options
                         .rolling
                         .then(|| fairing.options.ttl.unwrap_or(fairing.options.max_age)),
                     fairing.storage.as_ref(),
-                    cookie_jar,
                 )
                 .await
             })
             .await;
 
         Outcome::Success(Session::new(
-            cached_inner.clone(),
+            cached_inner,
             session_error.as_ref(),
             cookie_jar,
             &fairing.options,
@@ -71,33 +66,32 @@ where
     })
 }
 
-/// Get session data from storage
+/// Fetch session data from storage
 #[inline(always)]
-async fn get_session_data<'r, T: Send + Sync + Clone>(
-    session_cookie: Option<Cookie<'static>>,
+async fn fetch_session_data<'r, T: Send + Sync + Clone>(
+    cookie_jar: &'r CookieJar<'_>,
+    cookie_name: &str,
     rolling_ttl: Option<u32>,
     storage: &'r dyn SessionStorage<T>,
-    cookie_jar: &'r CookieJar<'_>,
 ) -> LocalCachedSession<T> {
+    let session_cookie = cookie_jar.get_private(cookie_name);
     if let Some(cookie) = session_cookie {
         let id = cookie.value();
-        rocket::debug!("Got session id '{}' from cookie. Retrieving session...", id);
+        rocket::debug!("Got session id '{id}' from cookie. Retrieving session...");
         match storage.load(id, rolling_ttl, cookie_jar).await {
             Ok((data, ttl)) => {
                 rocket::debug!("Session found. Creating existing session...");
-                (
-                    Arc::new(Mutex::new(SessionInner::new_existing(id, data, ttl))),
-                    None,
-                )
+                let session_inner = SessionInner::new_existing(id, data, ttl);
+                (Mutex::new(session_inner), None)
             }
             Err(e) => {
-                rocket::debug!("Error from session storage, creating empty session: {}", e);
-                (Arc::default(), Some(e))
+                rocket::info!("Error from session storage, creating empty session: {e}");
+                (Mutex::default(), Some(e))
             }
         }
     } else {
         rocket::debug!("No valid session cookie found. Creating empty session...");
-        (Arc::default(), Some(SessionError::NoSessionCookie))
+        (Mutex::default(), Some(SessionError::NoSessionCookie))
     }
 }
 

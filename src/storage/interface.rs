@@ -1,52 +1,8 @@
 //! Shared interface for session storage
 
-use std::fmt::Debug;
-
 use rocket::{async_trait, http::CookieJar};
 
-/// Errors that can happen during session retrieval/handling
-#[derive(Debug, thiserror::Error)]
-pub enum SessionError {
-    /// There was no session cookie, or decryption of the cookie failed
-    #[error("No session cookie")]
-    NoSessionCookie,
-    /// Session wasn't found in storage
-    #[error("Session not found")]
-    NotFound,
-    /// Session was found but it was expired
-    #[error("Session expired")]
-    Expired,
-    /// Error serializing or deserializing the session data
-    #[error("Failed to serialize/deserialize session")]
-    Serialization(Box<dyn std::error::Error + Send + Sync>),
-    /// An unexpected error from the storage backend
-    #[error("Storage backend error: {0}")]
-    Backend(Box<dyn std::error::Error + Send + Sync>),
-
-    #[cfg(feature = "redis_fred")]
-    #[error("fred.rs client error: {0}")]
-    RedisFredError(fred::error::Error),
-
-    #[cfg(feature = "sqlx_postgres")]
-    #[error("Sqlx error: {0}")]
-    SqlxError(sqlx::Error),
-}
-
-#[cfg(feature = "redis_fred")]
-impl From<fred::error::Error> for SessionError {
-    fn from(value: fred::error::Error) -> Self {
-        SessionError::RedisFredError(value)
-    }
-}
-
-#[cfg(feature = "sqlx_postgres")]
-impl From<sqlx::Error> for SessionError {
-    fn from(value: sqlx::Error) -> Self {
-        SessionError::SqlxError(value)
-    }
-}
-
-pub type SessionResult<T> = Result<T, SessionError>;
+use crate::{error::SessionResult, SessionIdentifier};
 
 /// Trait representing a session backend storage. You can use your own session storage
 /// by implementing this trait.
@@ -57,7 +13,7 @@ where
 {
     /// Load session data and TTL (time-to-live in seconds) from storage. If a TTL value is provided,
     /// it should be set upon retreiving the session. If session is already expired
-    /// or otherwise invalid, a [SessionError] should be returned instead.
+    /// or otherwise invalid, a [`SessionError`](crate::error::SessionError) should be returned instead.
     async fn load(
         &self,
         id: &str,
@@ -69,7 +25,7 @@ where
     async fn save(&self, id: &str, data: T, ttl: u32) -> SessionResult<()>;
 
     /// Delete a session in storage. This will be performed at the end of the request lifecycle.
-    async fn delete(&self, id: &str) -> SessionResult<()>;
+    async fn delete(&self, id: &str, cookie_jar: &CookieJar) -> SessionResult<()>;
 
     /// Optional callback when there's a pending change to the session data. A `data` value
     /// of `None` indicates a deleted session. This callback can be used by cookie-based
@@ -85,6 +41,12 @@ where
         Ok(()) // Default no-op
     }
 
+    /// Storages that support indexing (by implementing [`SessionStorageIndexed`]) must
+    /// also implement this. Implementation should be trivial: `Some(self)`
+    fn as_indexed_storage(&self) -> Option<&dyn SessionStorageIndexed<T>> {
+        None // Default not supported
+    }
+
     /// Optional setup of resources that will be called on server startup
     async fn setup(&self) -> SessionResult<()> {
         Ok(()) // Default no-op
@@ -94,4 +56,29 @@ where
     async fn shutdown(&self) -> SessionResult<()> {
         Ok(()) // Default no-op
     }
+}
+
+/// Extended trait for storage backends that support session indexing by identifier.
+/// This allows operations like finding all sessions for a user or bulk invalidation.
+///
+/// Not all storage backends can support this - for example, cookie-based storage
+/// cannot implement this trait since cookies are only persisted on the client-side.
+#[async_trait]
+pub trait SessionStorageIndexed<T>: SessionStorage<T>
+where
+    T: SessionIdentifier + Send + Sync,
+{
+    /// Retrieve all tracked session IDs associated with the given identifier.
+    async fn get_session_ids_by_identifier(&self, id: &T::Id) -> SessionResult<Vec<String>>;
+
+    /// Retrieve all tracked session IDs, data, and TTL for the given identifier.
+    async fn get_sessions_by_identifier(&self, id: &T::Id) -> SessionResult<Vec<(String, T, u32)>>;
+
+    /// Invalidate all tracked sessions associated with the given identifier, optionally excluding one session ID.
+    /// Returns the number of sessions invalidated.
+    async fn invalidate_sessions_by_identifier(
+        &self,
+        id: &T::Id,
+        excluded_session_id: Option<&str>,
+    ) -> SessionResult<u64>;
 }

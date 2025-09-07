@@ -1,6 +1,7 @@
 //! In-memory session storage implementation
 
 use std::{
+    collections::{HashMap, HashSet},
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -12,11 +13,18 @@ use rocket::{
     tokio::{select, spawn, sync::oneshot},
 };
 
-use super::interface::{SessionError, SessionResult, SessionStorage};
+use crate::{
+    error::{SessionError, SessionResult},
+    SessionIdentifier,
+};
+
+use super::interface::{SessionStorage, SessionStorageIndexed};
 
 /// In-memory storage provider for sessions. This is designed mostly for local
 /// development, and not for production use. It uses the [retainer] crate to
 /// create an async cache.
+///
+/// For session indexing support, see [`MemoryStorageIndexed`].
 pub struct MemoryStorage<T> {
     shutdown_tx: Mutex<Option<oneshot::Sender<()>>>,
     cache: Arc<Cache<String, T>>,
@@ -54,10 +62,8 @@ where
                 )
                 .await;
         }
-        Ok((
-            data.to_owned(),
-            ttl.unwrap_or(data.expiration().remaining().unwrap().as_secs() as u32),
-        ))
+        let ttl = ttl.unwrap_or(data.expiration().remaining().unwrap().as_secs() as u32);
+        Ok((data.to_owned(), ttl))
     }
 
     async fn save(&self, id: &str, data: T, ttl: u32) -> SessionResult<()> {
@@ -67,7 +73,7 @@ where
         Ok(())
     }
 
-    async fn delete(&self, id: &str) -> SessionResult<()> {
+    async fn delete(&self, id: &str, _cookie_jar: &CookieJar) -> SessionResult<()> {
         self.cache.remove(&id.to_owned()).await;
         Ok(())
     }
@@ -92,5 +98,204 @@ where
             let _ = tx.send(());
         }
         Ok(())
+    }
+}
+
+/// Extended in-memory storage that supports session indexing by identifier.
+/// This allows for operations like retrieving all sessions for a user or
+/// bulk invalidation of sessions.
+///
+/// You must implement the [`SessionIdentifier`] trait for your session type,
+/// and the [`SessionIdentifier::Id`] type must implement [`ToString`].
+///
+/// # Example
+/// ```rust
+/// use rocket_flex_session::storage::memory::MemoryStorageIndexed;
+/// use rocket_flex_session::{SessionIdentifier, RocketFlexSession};
+///
+/// #[derive(Clone)]
+/// struct UserSession {
+///     user_id: String,
+///     data: String,
+/// }
+///
+/// impl SessionIdentifier for UserSession {
+///     type Id = String;
+///     fn identifier(&self) -> Option<&Self::Id> {
+///         Some(&self.user_id)
+///     }
+/// }
+///
+/// let storage = MemoryStorageIndexed::<UserSession>::default();
+/// let fairing = RocketFlexSession::builder()
+///     .storage(storage)
+///     .build();
+/// ```
+pub struct MemoryStorageIndexed<T>
+where
+    T: SessionIdentifier,
+{
+    base_storage: MemoryStorage<T>,
+    // Index from identifier to set of session IDs
+    identifier_index: Arc<Mutex<HashMap<String, HashSet<String>>>>,
+}
+
+impl<T> Default for MemoryStorageIndexed<T>
+where
+    T: SessionIdentifier,
+    <T as SessionIdentifier>::Id: ToString,
+{
+    fn default() -> Self {
+        Self {
+            base_storage: MemoryStorage::default(),
+            identifier_index: Arc::default(),
+        }
+    }
+}
+
+impl<T> MemoryStorageIndexed<T>
+where
+    T: SessionIdentifier,
+    T::Id: ToString,
+{
+    /// Update the identifier index when session data is saved
+    fn update_identifier_index(&self, session_id: &str, data: &T) {
+        if let Some(id) = data.identifier() {
+            let mut index = self.identifier_index.lock().unwrap();
+            index
+                .entry(id.to_string())
+                .or_insert_with(HashSet::new)
+                .insert(session_id.to_owned());
+        }
+    }
+
+    /// Remove from identifier index when session is deleted
+    fn remove_from_identifier_index(&self, session_id: &str, data: &T) {
+        if let Some(id) = data.identifier() {
+            let mut index = self.identifier_index.lock().unwrap();
+            let key = id.to_string();
+            if let Some(session_ids) = index.get_mut(&key) {
+                session_ids.remove(session_id);
+                if session_ids.is_empty() {
+                    index.remove(&key);
+                }
+            }
+        }
+    }
+}
+
+#[async_trait]
+impl<T> SessionStorage<T> for MemoryStorageIndexed<T>
+where
+    T: SessionIdentifier + Clone + Send + Sync + 'static,
+    T::Id: ToString,
+{
+    async fn load(
+        &self,
+        id: &str,
+        ttl: Option<u32>,
+        cookie_jar: &CookieJar,
+    ) -> SessionResult<(T, u32)> {
+        self.base_storage.load(id, ttl, cookie_jar).await
+    }
+
+    async fn save(&self, id: &str, data: T, ttl: u32) -> SessionResult<()> {
+        // Update identifier index before saving
+        self.update_identifier_index(id, &data);
+
+        // Save using base storage
+        self.base_storage.save(id, data, ttl).await
+    }
+
+    async fn delete(&self, id: &str, cookie_jar: &CookieJar) -> SessionResult<()> {
+        // Get the data first so we can update the index
+        if let Ok((data, _)) = self.base_storage.load(id, None, cookie_jar).await {
+            self.remove_from_identifier_index(id, &data);
+        }
+
+        // Delete using base storage
+        self.base_storage.delete(id, cookie_jar).await
+    }
+
+    fn as_indexed_storage(&self) -> Option<&dyn SessionStorageIndexed<T>> {
+        Some(self)
+    }
+
+    async fn setup(&self) -> SessionResult<()> {
+        self.base_storage.setup().await
+    }
+
+    async fn shutdown(&self) -> SessionResult<()> {
+        self.base_storage.shutdown().await
+    }
+}
+
+#[async_trait]
+impl<T> SessionStorageIndexed<T> for MemoryStorageIndexed<T>
+where
+    Self: SessionStorage<T>,
+    T: SessionIdentifier + Clone + Send + Sync,
+    T::Id: ToString,
+{
+    async fn get_sessions_by_identifier(&self, id: &T::Id) -> SessionResult<Vec<(String, T, u32)>> {
+        let session_ids = {
+            let index = self.identifier_index.lock().unwrap();
+            index.get(&id.to_string()).cloned().unwrap_or_default()
+        };
+
+        let mut sessions: Vec<(String, T, u32)> = Vec::new();
+        for session_id in session_ids {
+            if let Some(data) = self.base_storage.cache.get(&session_id).await {
+                let secs = data.expiration().remaining().unwrap().as_secs();
+                sessions.push((session_id, data.value().to_owned(), secs as u32));
+            }
+        }
+
+        Ok(sessions)
+    }
+
+    async fn get_session_ids_by_identifier(&self, id: &T::Id) -> SessionResult<Vec<String>> {
+        let id_str = id.to_string();
+        let session_ids = {
+            let index = self.identifier_index.lock().unwrap();
+            index.get(&id_str).cloned().unwrap_or_default()
+        };
+
+        Ok(session_ids.into_iter().collect())
+    }
+
+    async fn invalidate_sessions_by_identifier(
+        &self,
+        id: &T::Id,
+        excluded_session_id: Option<&str>,
+    ) -> SessionResult<u64> {
+        let id_str = id.to_string();
+        let mut session_ids_to_remove = {
+            let index = self.identifier_index.lock().unwrap();
+            index.get(&id_str).cloned().unwrap_or_default()
+        };
+        if let Some(session_id) = excluded_session_id {
+            session_ids_to_remove.retain(|id| id != session_id);
+        }
+
+        // Remove all sessions from cache
+        for session_id in &session_ids_to_remove {
+            self.base_storage.cache.remove(session_id).await;
+        }
+
+        // Remove all sessions from index
+        {
+            let mut index = self.identifier_index.lock().unwrap();
+            if let Some(session_set) = index.get_mut(&id_str) {
+                for session_id in &session_ids_to_remove {
+                    session_set.remove(session_id);
+                }
+                if session_set.is_empty() {
+                    index.remove(&id_str);
+                }
+            }
+        }
+
+        Ok(session_ids_to_remove.len() as u64)
     }
 }

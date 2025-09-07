@@ -33,6 +33,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 fred = { version = "10.1", optional = true, default-features = false, features = [
     "i-keys",
     "i-hashes",
+    "i-sets",
 ] }
 rand = "0.8"
 retainer = "0.3"

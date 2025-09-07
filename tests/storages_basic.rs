@@ -1,24 +1,29 @@
+mod common;
+
 #[macro_use]
 extern crate rocket;
 
 use std::{future::Future, pin::Pin};
 
-use fred::prelude::{ClientLike, ReconnectPolicy};
-use rocket::{http::Status, local::asynchronous::Client, tokio::time::sleep, Build, Rocket};
+use rocket::{
+    futures::FutureExt, http::Status, local::asynchronous::Client, tokio::time::sleep, Build,
+    Rocket,
+};
 use rocket_flex_session::{
+    error::SessionError,
     storage::{
         cookie::CookieStorage,
-        interface::SessionError,
-        redis::{RedisFredStorage, RedisType},
+        redis::{RedisFredStorage, RedisFredStorageIndexed, RedisType},
         sqlx::SqlxPostgresStorage,
     },
-    RocketFlexSession, Session,
+    RocketFlexSession, Session, SessionIdentifier,
 };
 use serde::{Deserialize, Serialize};
-use sqlx::{Connection, PgPool};
 use test_case::test_case;
 
-const POSTGRES_URL: &str = "postgres://postgres:postgres@localhost";
+use crate::common::{
+    setup_postgres, setup_redis_fred, teardown_postgres, teardown_redis_fred, POSTGRES_URL,
+};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 struct SessionData {
@@ -35,16 +40,23 @@ impl From<SessionData> for String {
         value.user_id
     }
 }
-impl TryFrom<fred::types::Value> for SessionData {
-    type Error = SessionError;
-    fn try_from(value: fred::types::Value) -> Result<Self, Self::Error> {
-        let user_id = value.as_string().ok_or(SessionError::NotFound)?;
-        Ok(Self { user_id })
+impl fred::types::FromValue for SessionData {
+    fn from_value(value: fred::prelude::Value) -> Result<Self, fred::prelude::Error> {
+        Ok(Self {
+            user_id: value.convert()?,
+        })
     }
 }
 impl From<SessionData> for fred::types::Value {
     fn from(value: SessionData) -> Self {
         Self::String(value.user_id.into())
+    }
+}
+impl SessionIdentifier for SessionData {
+    const IDENTIFIER: &str = "user_id";
+    type Id = String;
+    fn identifier(&self) -> Option<&Self::Id> {
+        Some(&self.user_id)
     }
 }
 
@@ -75,40 +87,12 @@ fn expire_session(mut session: Session<SessionData>) {
     session.set_ttl(1);
 }
 
-/// Setup a test Postgres database
-async fn setup_postgres(base_url: &str) -> (PgPool, String) {
-    let db_name = format!(
-        "test_{}",
-        (0..6)
-            .map(|_| (b'a' + (rand::random::<u8>() % 26)) as char)
-            .collect::<String>()
-    );
-    let mut cxn = sqlx::PgConnection::connect(base_url).await.unwrap();
-    sqlx::query(&format!("CREATE DATABASE {}", db_name))
-        .execute(&mut cxn)
-        .await
-        .expect("Should create test database");
-    let _ = cxn.close().await;
-
-    let db_url = format!("{}/{}", base_url, db_name);
-    let pool = sqlx::PgPool::connect(&db_url).await.unwrap();
-    sqlx::query(
-        r#"CREATE TABLE IF NOT EXISTS sessions (
-          id      TEXT PRIMARY KEY,
-          data    TEXT NOT NULL,
-          expires TIMESTAMPTZ NOT NULL
-      )"#,
-    )
-    .execute(&pool)
-    .await
-    .expect("Should create sessions table");
-
-    (pool, db_name)
-}
-
 async fn create_rocket(
     storage_case: &str,
-) -> (Rocket<Build>, Option<Pin<Box<dyn Future<Output = ()>>>>) {
+) -> (
+    Rocket<Build>,
+    Option<Pin<Box<dyn Future<Output = ()> + Send>>>,
+) {
     let (fairing, cleanup_task) = match storage_case {
         "cookie" => (
             RocketFlexSession::<SessionData>::builder()
@@ -117,41 +101,31 @@ async fn create_rocket(
             None,
         ),
         "redis" => {
-            let pool = fred::prelude::Builder::default_centralized()
-                .set_policy(ReconnectPolicy::new_linear(3, 5, 1))
-                .with_performance_config(|c| {
-                    c.default_command_timeout = std::time::Duration::from_secs(5)
-                })
-                .build_pool(3)
-                .expect("Should build Redis pool");
-            pool.init().await.expect("Should initialize Redis pool");
-            let storage = RedisFredStorage::new(pool.clone(), RedisType::String, "sess:");
+            let (pool, prefix) = setup_redis_fred().await;
+            let storage = RedisFredStorage::new(pool.clone(), RedisType::String, &prefix);
             let fairing = RocketFlexSession::<SessionData>::builder()
                 .storage(storage)
                 .build();
-
-            let cleanup_task: Pin<Box<dyn Future<Output = ()>>> = Box::pin(async move {
-                pool.quit().await.ok();
-                drop(pool);
-            });
+            let cleanup_task = teardown_redis_fred(pool, prefix).boxed();
+            (fairing, Some(cleanup_task))
+        }
+        "redis_indexed" => {
+            let (pool, prefix) = setup_redis_fred().await;
+            let base_storage = RedisFredStorage::new(pool.clone(), RedisType::String, &prefix);
+            let storage = RedisFredStorageIndexed::new(base_storage, None);
+            let fairing = RocketFlexSession::<SessionData>::builder()
+                .storage(storage)
+                .build();
+            let cleanup_task = teardown_redis_fred(pool, prefix).boxed();
             (fairing, Some(cleanup_task))
         }
         "sqlx" => {
             let (pool, db_name) = setup_postgres(POSTGRES_URL).await;
-            let storage = SqlxPostgresStorage::new(pool.clone(), "sessions");
+            let storage = SqlxPostgresStorage::new(pool.clone(), "sessions", None);
             let fairing = RocketFlexSession::<SessionData>::builder()
                 .storage(storage)
                 .build();
-
-            let cleanup_task: Pin<Box<dyn Future<Output = ()>>> = Box::pin(async move {
-                pool.close().await;
-                drop(pool);
-                let mut cxn = sqlx::PgConnection::connect(POSTGRES_URL).await.unwrap();
-                sqlx::query(&format!("DROP DATABASE {} WITH (FORCE)", db_name))
-                    .execute(&mut cxn)
-                    .await
-                    .expect("Should drop test database");
-            });
+            let cleanup_task = teardown_postgres(pool, db_name).boxed();
             (fairing, Some(cleanup_task))
         }
         _ => unimplemented!(),
@@ -166,7 +140,8 @@ async fn create_rocket(
 }
 
 #[test_case("cookie"; "Cookie")]
-#[test_case("redis"; "Fred Redis")]
+#[test_case("redis"; "Redis Fred")]
+#[test_case("redis_indexed"; "Redis Fred Indexed")]
 #[test_case("sqlx"; "Sqlx Postgres")]
 #[rocket::async_test]
 async fn test_storages(storage_case: &str) {

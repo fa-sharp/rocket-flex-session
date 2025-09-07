@@ -7,7 +7,9 @@ use rocket::{
     time::{Duration, OffsetDateTime},
 };
 
-use super::interface::{SessionError, SessionResult, SessionStorage};
+use crate::error::{SessionError, SessionResult};
+
+use super::interface::SessionStorage;
 
 /**
 Storage provider for sessions backed by cookies. All session data is serialized to JSON
@@ -170,7 +172,7 @@ where
         Ok(()) // no-op (cookie session should already be saved by `save_cookie`)
     }
 
-    async fn delete(&self, _id: &str) -> SessionResult<()> {
+    async fn delete(&self, _id: &str, _cookie_jar: &CookieJar) -> SessionResult<()> {
         Ok(()) // no-op (cookie session should already be deleted by `save_cookie`)
     }
 }
