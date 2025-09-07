@@ -33,8 +33,9 @@ pub trait SessionIdentifier {
     /// The type of the identifier
     type Id: Send + Sync + Clone;
 
-    /// Extract the identifier from the session data.
-    /// Returns `None` if the session doesn't have an identifier and/or
+    /// Extract the identifier from the session data. This identifier
+    /// should be immutable for the lifetime of the session.
+    /// Can return `None` if a session doesn't have an identifier and/or
     /// shouldn't be indexed.
     fn identifier(&self) -> Option<&Self::Id>;
 }

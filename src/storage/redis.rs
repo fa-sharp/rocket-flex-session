@@ -75,9 +75,9 @@ pub struct RedisFredStorage {
 /// Redis session storage using the [fred.rs](https://docs.rs/fred) crate. This is a wrapper around
 /// [`RedisFredStorage`] that adds support for indexing sessions by an identifier (e.g. `user_id`).
 ///
-/// In addition to the requirements for [`RedisFredStorage`], your session data type must
+/// In addition to the requirements for `RedisFredStorage`, your session data type must
 /// implement [`SessionIdentifier`], and its [Id](`SessionIdentifier::Id`) type
-/// must implement [`ToString`]. Sessions are tracked in Redis sets, with a key format of
+/// must implement `ToString`. Sessions are tracked in Redis sets, with a key format of
 /// `<key_prefix><identifier_name>:<id>`. e.g.: `sess:user_id:1`
 pub struct RedisFredStorageIndexed {
     base_storage: RedisFredStorage,

@@ -103,7 +103,18 @@ where
     }
 
     /// Get a reference to the current session data via a closure.
-    /// Data will be `None` if there's no active session.
+    /// The closure's argument will be `None` if there's no active session.
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// session.tap(|data| {
+    ///     if let Some(data) = data {
+    ///         println!("Session data: {:?}", data);
+    ///     } else {
+    ///         println!("No active session");
+    ///     }
+    /// });
+    /// ```
     pub fn tap<F, R>(&self, f: F) -> R
     where
         F: FnOnce(Option<&T>) -> R,
@@ -112,7 +123,18 @@ where
     }
 
     /// Get a mutable reference to the current session data via a closure.
-    /// The function's argument will be `None` if there's no active session.
+    /// The closure's argument will be `None` if there's no active session.
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// session.tap_mut(|data| {
+    ///     if let Some(data) = data {
+    ///         data.foo = new_value;
+    ///     } else {
+    ///         println!("No active session");
+    ///     }
+    /// });
+    /// ```
     pub fn tap_mut<UpdateFn, R>(&mut self, f: UpdateFn) -> R
     where
         UpdateFn: FnOnce(&mut Option<T>) -> R,
@@ -129,7 +151,7 @@ where
         response
     }
 
-    /// Set/update the session data. Will create a new active session if there isn't one.
+    /// Set/replace the session data. Will create a new active session if there isn't one.
     pub fn set(&mut self, new_data: T) {
         self.get_inner_lock()
             .set_data(new_data, self.get_default_ttl());
@@ -137,7 +159,8 @@ where
     }
 
     /// Set the TTL of the session in seconds. This can be used to extend the length
-    /// of the session if needed. This has no effect if there is no active session.
+    /// of the session if needed. This has no effect if there is no active session, or
+    /// if you have enabled "rolling" sessions in the [`options`](RocketFlexSessionOptions::rolling).
     pub fn set_ttl(&mut self, new_ttl: u32) {
         self.get_inner_lock().set_ttl(new_ttl);
         self.update_cookies();
