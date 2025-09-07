@@ -160,17 +160,21 @@ where
 
         // Handle deleted session
         if let Some(deleted_id) = deleted {
-            let delete_result = self.storage.delete(&deleted_id, req.cookies()).await;
-            if let Err(e) = delete_result {
+            rocket::debug!("Found deleted session. Deleting session '{deleted_id}'...");
+            if let Err(e) = self.storage.delete(&deleted_id, req.cookies()).await {
                 rocket::warn!("Error while deleting session '{deleted_id}': {e}");
+            } else {
+                rocket::debug!("Deleted session '{deleted_id}' successfully");
             }
         }
 
         // Handle updated session
         if let Some((id, pending_data, ttl)) = updated {
-            let save_result = self.storage.save(&id, pending_data, ttl).await;
-            if let Err(e) = save_result {
+            rocket::debug!("Found updated session. Saving session '{id}'...");
+            if let Err(e) = self.storage.save(&id, pending_data, ttl).await {
                 rocket::error!("Error while saving session '{id}': {e}");
+            } else {
+                rocket::debug!("Saved session '{id}' successfully");
             }
         }
     }
