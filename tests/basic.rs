@@ -118,14 +118,22 @@ fn test_set_and_get_session() {
         .cookies()
         .get_private("rocket")
         .expect("should have session cookie");
+    let cookie_value = cookie.value().to_owned();
 
     assert_eq!(set_response.status(), Status::Ok);
-    assert_eq!(cookie.value(), set_response.into_string().unwrap());
+    assert_eq!(cookie_value, set_response.into_string().unwrap());
 
     // Get session
     let get_response = client.get("/get_session").dispatch();
     assert_eq!(get_response.status(), Status::Ok);
     assert_eq!(get_response.into_string().unwrap(), "User: Test User (123)");
+
+    // Update session
+    let set_response = client.post("/set_session").dispatch();
+
+    // Verify cookie was not changed
+    assert_eq!(set_response.cookies().get_private("rocket"), None);
+    assert_eq!(set_response.status(), Status::Ok);
 }
 
 #[test]
@@ -152,14 +160,25 @@ fn test_hashmap_session() {
         .dispatch();
     assert_eq!(response.status(), Status::Ok);
 
-    // Verify cookie was set
+    // Verify session cookie was set
     response
         .cookies()
         .get_private("hash_session")
         .expect("should have session cookie");
 
-    // Get hash value
+    // Set another hash value, and verify session cookie was not changed
+    let response = client
+        .post("/set_hash_session/test_key_2/test_value")
+        .dispatch();
+    assert_eq!(response.status(), Status::Ok);
+    assert_eq!(response.cookies().get_private("hash_session"), None);
+
+    // Get hash values
     let response = client.get("/get_hash_session/test_key").dispatch();
+    assert_eq!(response.status(), Status::Ok);
+    assert_eq!(response.into_string().unwrap(), "test_value");
+
+    let response = client.get("/get_hash_session/test_key_2").dispatch();
     assert_eq!(response.status(), Status::Ok);
     assert_eq!(response.into_string().unwrap(), "test_value");
 
