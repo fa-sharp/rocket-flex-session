@@ -88,14 +88,21 @@ async fn create_storage(
         }
         "redis" => {
             let (pool, prefix) = setup_redis_fred().await;
-            let base_storage = RedisFredStorage::new(pool.clone(), RedisType::Hash, &prefix);
-            let storage = RedisFredStorageIndexed::new(base_storage, None);
+            let base_storage = RedisFredStorage::builder()
+                .pool(pool.clone())
+                .prefix(&prefix)
+                .redis_type(RedisType::Hash)
+                .build();
+            let storage = RedisFredStorageIndexed::from_storage(base_storage).build();
             let cleanup_task = teardown_redis_fred(pool, prefix).boxed();
             (Box::new(storage), Some(cleanup_task))
         }
         "sqlx" => {
             let (pool, db_name) = setup_postgres(POSTGRES_URL).await;
-            let storage = SqlxPostgresStorage::new(pool.clone(), "sessions", None);
+            let storage = SqlxPostgresStorage::builder()
+                .pool(pool.clone())
+                .table_name("sessions")
+                .build();
             let cleanup_task = teardown_postgres(pool, db_name).boxed();
             (Box::new(storage), Some(cleanup_task))
         }

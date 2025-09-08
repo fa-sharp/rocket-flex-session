@@ -1,3 +1,4 @@
+use bon::Builder;
 use fred::prelude::{FromValue, HashesInterface, KeysInterface, SetsInterface, Value};
 use rocket::http::CookieJar;
 
@@ -14,29 +15,24 @@ const DEFAULT_INDEX_TTL: u32 = 60 * 60 * 24 * 7 * 2; // 2 weeks
 /// Redis session storage using the [fred.rs](https://docs.rs/fred) crate. This is a wrapper around
 /// [`RedisFredStorage`] that adds support for indexing sessions by an identifier (e.g. `user_id`).
 ///
+/// # Requirements
 /// In addition to the requirements for `RedisFredStorage`, your session data type must
 /// implement [`SessionIdentifier`], and its [Id](`SessionIdentifier::Id`) type
-/// must implement `ToString`. Sessions are tracked in Redis sets, with a key format of
-/// `<key_prefix><identifier_name>:<id>`. e.g.: `sess:user_id:1`
+/// must implement `ToString`. Sessions are tracked in Redis sets, with a key format of:
+///
+/// `<key_prefix><identifier_name>:<id>` (e.g.: `sess:user_id:1`)
+#[derive(Builder)]
+#[builder(start_fn = from_storage)]
 pub struct RedisFredStorageIndexed {
+    #[builder(start_fn)]
+    /// The [`RedisFredStorage`] instance to use.
     base_storage: RedisFredStorage,
+    #[builder(default = DEFAULT_INDEX_TTL)]
+    /// The TTL for the session index - should match your longest expected session duration (default: 2 weeks).
     index_ttl: u32,
 }
 
 impl RedisFredStorageIndexed {
-    /// Create the indexed storage.
-    ///
-    /// # Parameters:
-    /// - `base_storage`: The [`RedisFredStorage`] instance to use.
-    /// - `index_ttl`: The TTL for the session index - should match
-    /// your longest expected session duration (default: 2 weeks).
-    pub fn new(base_storage: RedisFredStorage, index_ttl: Option<u32>) -> Self {
-        Self {
-            base_storage,
-            index_ttl: index_ttl.unwrap_or(DEFAULT_INDEX_TTL),
-        }
-    }
-
     fn session_index_key(&self, identifier_name: &str, identifier: &impl ToString) -> String {
         format!(
             "{}{identifier_name}:{}",

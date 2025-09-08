@@ -307,7 +307,7 @@ mod session_inner;
 
 pub mod error;
 pub mod storage;
-pub use fairing::{RocketFlexSession, RocketFlexSessionBuilder};
+pub use fairing::RocketFlexSession;
 pub use options::RocketFlexSessionOptions;
 pub use session::Session;
 pub use session_hash::SessionHashMap;

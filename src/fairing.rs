@@ -3,6 +3,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use bon::Builder;
 use rocket::{fairing::Fairing, Build, Orbit, Request, Response, Rocket};
 
 use crate::{
@@ -52,24 +53,21 @@ fn rocket() -> _ {
 }
 ```
 */
-#[derive(Clone)]
-pub struct RocketFlexSession<T> {
+#[derive(Builder)]
+pub struct RocketFlexSession<T: Send + Sync + Clone + 'static> {
+    /// Set the options directly. Alternatively, use `with_options` to customize the default options via a closure.
+    #[builder(default)]
     pub(crate) options: RocketFlexSessionOptions,
+    #[builder(default = Arc::new(MemoryStorage::default()), with = |storage: impl SessionStorage<T> + 'static| Arc::new(storage))]
+    /// Set the session storage provider. The default is an in-memory storage.
     pub(crate) storage: Arc<dyn SessionStorage<T>>,
 }
-impl<T> RocketFlexSession<T>
-where
-    T: Send + Sync + Clone + 'static,
-{
-    /// Build a session configuration
-    pub fn builder() -> RocketFlexSessionBuilder<T> {
-        RocketFlexSessionBuilder::default()
-    }
-}
+
 impl<T> Default for RocketFlexSession<T>
 where
     T: Send + Sync + Clone + 'static,
 {
+    /// Create a new instance with default options and an in-memory storage.
     fn default() -> Self {
         Self {
             options: Default::default(),
@@ -78,50 +76,24 @@ where
     }
 }
 
-/// Builder to configure the [RocketFlexSession] fairing
-pub struct RocketFlexSessionBuilder<T>
+use rocket_flex_session_builder::{IsUnset, SetOptions, State};
+impl<T, S> RocketFlexSessionBuilder<T, S>
 where
     T: Send + Sync + Clone + 'static,
+    S: State,
 {
-    fairing: RocketFlexSession<T>,
-}
-impl<T> Default for RocketFlexSessionBuilder<T>
-where
-    T: Send + Sync + Clone + 'static,
-{
-    fn default() -> Self {
-        Self {
-            fairing: Default::default(),
-        }
-    }
-}
-impl<T> RocketFlexSessionBuilder<T>
-where
-    T: Send + Sync + Clone + 'static,
-{
-    /// Set the session options via a closure. If you're using a cookie-based storage
-    /// provider, make sure to set the corresponding cookie settings
-    /// in the storage configuration as well.
-    pub fn with_options<OptionsFn>(&mut self, options_fn: OptionsFn) -> &mut Self
+    /// Customize the [options](RocketFlexSessionOptions) via a closure. Any options that are not set will retain their default values.
+    pub fn with_options<OptionsFn>(
+        self,
+        options_fn: OptionsFn,
+    ) -> RocketFlexSessionBuilder<T, SetOptions<S>>
     where
+        S::Options: IsUnset,
         OptionsFn: FnOnce(&mut RocketFlexSessionOptions),
     {
-        options_fn(&mut self.fairing.options);
-        self
-    }
-
-    /// Set the session storage provider
-    pub fn storage<S>(&mut self, storage: S) -> &mut Self
-    where
-        S: SessionStorage<T> + 'static,
-    {
-        self.fairing.storage = Arc::new(storage);
-        self
-    }
-
-    /// Build the fairing
-    pub fn build(&self) -> RocketFlexSession<T> {
-        self.fairing.clone()
+        let mut options = RocketFlexSessionOptions::default();
+        options_fn(&mut options);
+        self.options(options)
     }
 }
 
