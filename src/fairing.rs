@@ -82,7 +82,7 @@ where
     T: Send + Sync + Clone + 'static,
     S: State,
 {
-    /// Set the [options](RocketFlexSessionOptions) via a closure. Any options that are not set will be set to their default values.
+    /// Customize the [options](RocketFlexSessionOptions) via a closure. Any options that are not set will retain their default values.
     pub fn with_options<OptionsFn>(
         self,
         options_fn: OptionsFn,
