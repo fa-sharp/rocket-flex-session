@@ -3,7 +3,6 @@ use rocket::{
     time::{Duration, OffsetDateTime},
 };
 use std::{
-    fmt::Display,
     marker::{Send, Sync},
     sync::{Mutex, MutexGuard},
 };
@@ -56,15 +55,6 @@ where
     options: &'a RocketFlexSessionOptions,
     /// Configured storage provider for sessions
     pub(crate) storage: &'a dyn SessionStorage<T>,
-}
-
-impl<T> Display for Session<'_, T>
-where
-    T: Send + Sync + Clone,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "Session(id: {:?})", self.get_inner_lock().get_id())
-    }
 }
 
 impl<'a, T> Session<'a, T>
