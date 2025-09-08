@@ -53,7 +53,7 @@ fn rocket() -> _ {
 }
 ```
 */
-#[derive(Clone, Builder)]
+#[derive(Builder)]
 pub struct RocketFlexSession<T: Send + Sync + Clone + 'static> {
     /// Set the options directly. Alternatively, use `with_options` to customize the default options via a closure.
     #[builder(default)]

@@ -132,26 +132,23 @@ async fn user_profile(session: Session<'_, UserSession>) -> String {
 
 fn rocket() -> Rocket<Build> {
     let user_storage = MemoryStorageIndexed::<UserSession>::default();
+    let fairing = RocketFlexSession::<UserSession>::builder()
+        .storage(user_storage)
+        .build();
 
-    rocket::build()
-        .attach(
-            RocketFlexSession::<UserSession>::builder()
-                .storage(user_storage)
-                .build(),
-        )
-        .mount(
-            "/",
-            routes![
-                user_login,
-                get_user_sessions,
-                get_sessions_for_user,
-                invalidate_all_user_sessions,
-                invalidate_other_user_sessions,
-                invalidate_sessions_for_user,
-                get_user_session_ids,
-                user_profile,
-            ],
-        )
+    rocket::build().attach(fairing).mount(
+        "/",
+        routes![
+            user_login,
+            get_user_sessions,
+            get_sessions_for_user,
+            invalidate_all_user_sessions,
+            invalidate_other_user_sessions,
+            invalidate_sessions_for_user,
+            get_user_session_ids,
+            user_profile,
+        ],
+    )
 }
 
 #[cfg(test)]
