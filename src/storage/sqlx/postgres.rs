@@ -26,14 +26,14 @@ Session store using PostgreSQL via [sqlx](https://docs.rs/crate/sqlx) that store
 
 # Requirements
 You'll need to implement `TryInto<String>` and `TryFrom<String>` for your session data type. You'll also need to implement [`SessionIdentifier`],
-and its [`Id`](crate::SessionIdentifier::Id) must be a [type supported by sqlx](https://docs.rs/sqlx/latest/sqlx/postgres/types/index.html).
+and its [`Id`](crate::SessionIdentifier::Id) type must be a [type supported by sqlx](https://docs.rs/sqlx/latest/sqlx/postgres/types/index.html).
 Expects a table to already exist with the following columns:
 
 | Name | Type |
 |------|---------|
 | id   | `text` PRIMARY KEY |
 | data | `text` NOT NULL (or `jsonb` if using JSON) |
-| `<session identifier name>` | `<type>` (the name and type should match your [`SessionIdentifier`] impl) |
+| `<identifier>` | `<type>` (this identifier and type should match your [`SessionIdentifier`] impl) |
 | expires | `timestamptz` NOT NULL |
 
 # Creating the storage
