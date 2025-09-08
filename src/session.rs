@@ -101,7 +101,7 @@ where
     }
 
     /// Get a reference to the current session data via a closure.
-    /// The closure's argument will be `None` if there's no active session.
+    /// Data will be `None` if there's no active session.
     ///
     /// # Example
     /// ```rust,ignore
@@ -121,7 +121,8 @@ where
     }
 
     /// Get a mutable reference to the current session data via a closure.
-    /// The closure's argument will be `None` if there's no active session.
+    /// Data will be `None` if there's no active session. If the data is
+    /// set to `None` in the closure, the session will be deleted.
     ///
     /// # Example
     /// ```rust,ignore
