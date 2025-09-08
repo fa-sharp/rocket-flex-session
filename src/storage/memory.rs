@@ -190,6 +190,10 @@ where
     T: SessionIdentifier + Clone + Send + Sync + 'static,
     T::Id: ToString,
 {
+    fn as_indexed_storage(&self) -> Option<&dyn SessionStorageIndexed<T>> {
+        Some(self)
+    }
+
     async fn load(
         &self,
         id: &str,
@@ -215,10 +219,6 @@ where
 
         // Delete using base storage
         self.base_storage.delete(id, cookie_jar).await
-    }
-
-    fn as_indexed_storage(&self) -> Option<&dyn SessionStorageIndexed<T>> {
-        Some(self)
     }
 
     async fn setup(&self) -> SessionResult<()> {

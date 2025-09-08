@@ -96,6 +96,10 @@ where
     <T as TryInto<String>>::Error: std::error::Error + Send + Sync + 'static,
     <T as TryFrom<String>>::Error: std::error::Error + Send + Sync + 'static,
 {
+    fn as_indexed_storage(&self) -> Option<&dyn SessionStorageIndexed<T>> {
+        Some(self)
+    }
+
     async fn load(
         &self,
         id: &str,
