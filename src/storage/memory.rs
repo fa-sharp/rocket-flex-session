@@ -73,7 +73,7 @@ where
         Ok(())
     }
 
-    async fn delete(&self, id: &str, _cookie_jar: &CookieJar) -> SessionResult<()> {
+    async fn delete(&self, id: &str, _data: T) -> SessionResult<()> {
         self.cache.remove(&id.to_owned()).await;
         Ok(())
     }
@@ -211,14 +211,9 @@ where
         self.base_storage.save(id, data, ttl).await
     }
 
-    async fn delete(&self, id: &str, cookie_jar: &CookieJar) -> SessionResult<()> {
-        // Get the data first so we can update the index
-        if let Ok((data, _)) = self.base_storage.load(id, None, cookie_jar).await {
-            self.remove_from_identifier_index(id, &data);
-        }
-
-        // Delete using base storage
-        self.base_storage.delete(id, cookie_jar).await
+    async fn delete(&self, id: &str, data: T) -> SessionResult<()> {
+        self.remove_from_identifier_index(id, &data);
+        self.base_storage.delete(id, data).await
     }
 
     async fn setup(&self) -> SessionResult<()> {

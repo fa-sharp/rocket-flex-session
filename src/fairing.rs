@@ -35,20 +35,21 @@ struct MySession {
 #[rocket::launch]
 fn rocket() -> _ {
     // Use default settings with in-memory storage
-    let session_fairing = RocketFlexSession::<MySession>::default();
+    let default_fairing = RocketFlexSession::<MySession>::default();
 
     // Or customize settings with the builder
-    let custom_session = RocketFlexSession::<MySession>::builder()
-        .storage(CookieStorage::default()) // or a custom storage provider
+    let my_fairing = RocketFlexSession::<MySession>::builder()
+        .storage(CookieStorage::default())
         .with_options(|opt| {
             opt.cookie_name = "my_cookie".to_string();
             opt.path = "/app".to_string();
-            opt.max_age = 7 * 24 * 60 * 60; // 7 days
+            opt.max_age = 7 * 24 * 60 * 60;
         })
         .build();
 
     rocket::build()
-        .attach(session_fairing)
+        .attach(default_fairing)
+        .attach(my_fairing)
         // ... other configuration ...
 }
 ```
@@ -131,19 +132,19 @@ where
         let (updated, deleted) = session_inner.lock().unwrap().take_for_storage();
 
         // Handle deleted session
-        if let Some(deleted_id) = deleted {
-            rocket::debug!("Found deleted session. Deleting session '{deleted_id}'...");
-            if let Err(e) = self.storage.delete(&deleted_id, req.cookies()).await {
-                rocket::warn!("Error while deleting session '{deleted_id}': {e}");
+        if let Some((id, data)) = deleted {
+            rocket::debug!("Found deleted session. Deleting session '{id}'...");
+            if let Err(e) = self.storage.delete(&id, data).await {
+                rocket::warn!("Error while deleting session '{id}': {e}");
             } else {
-                rocket::debug!("Deleted session '{deleted_id}' successfully");
+                rocket::debug!("Deleted session '{id}' successfully");
             }
         }
 
         // Handle updated session
-        if let Some((id, pending_data, ttl)) = updated {
+        if let Some((id, data, ttl)) = updated {
             rocket::debug!("Found updated session. Saving session '{id}'...");
-            if let Err(e) = self.storage.save(&id, pending_data, ttl).await {
+            if let Err(e) = self.storage.save(&id, data, ttl).await {
                 rocket::error!("Error while saving session '{id}': {e}");
             } else {
                 rocket::debug!("Saved session '{id}' successfully");

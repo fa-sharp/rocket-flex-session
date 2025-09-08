@@ -170,7 +170,7 @@ where
         Ok(())
     }
 
-    async fn delete(&self, id: &str, _cookie_jar: &CookieJar) -> SessionResult<()> {
+    async fn delete(&self, id: &str, _data: T) -> SessionResult<()> {
         let sql = format!("DELETE FROM {} WHERE {ID_COLUMN} = $1", &self.table_name);
         sqlx::query(&sql).bind(id).execute(&self.pool).await?;
 

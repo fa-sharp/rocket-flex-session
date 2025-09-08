@@ -2,7 +2,7 @@ mod common;
 
 use std::{collections::HashMap, future::Future, pin::Pin};
 
-use rocket::{futures::FutureExt, local::asynchronous::Client};
+use rocket::futures::FutureExt;
 use rocket_flex_session::{
     storage::{
         memory::MemoryStorageIndexed,
@@ -308,7 +308,6 @@ async fn invalidate_all_but_one_by_identifier(storage_case: &str) {
 #[test_case("redis"; "Redis Fred")]
 #[rocket::async_test]
 async fn delete_single_session(storage_case: &str) {
-    let client = Client::tracked(rocket::build()).await.unwrap();
     let (storage, cleanup_task) = create_storage(storage_case).await;
     storage.setup().await.unwrap();
 
@@ -336,7 +335,7 @@ async fn delete_single_session(storage_case: &str) {
     );
 
     // Delete one session
-    storage.delete("sid1", &client.cookies()).await.unwrap();
+    storage.delete("sid1", session1.clone()).await.unwrap();
 
     // Verify only one session remains
     let remaining_sessions = storage

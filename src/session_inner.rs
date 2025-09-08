@@ -7,8 +7,8 @@ use crate::SessionIdentifier;
 pub(crate) struct SessionInner<T> {
     /// The current, active session
     current: Option<ActiveSession<T>>,
-    /// The ID of the original session if deleted during the request
-    deleted: Option<String>,
+    /// The original session if deleted during the request
+    deleted: Option<ActiveSession<T>>,
 }
 impl<T> Default for SessionInner<T> {
     fn default() -> Self {
@@ -16,7 +16,7 @@ impl<T> Default for SessionInner<T> {
     }
 }
 
-/// Represents a current, active session
+/// Represents an active session
 #[derive(Debug)]
 struct ActiveSession<T> {
     /// Session ID (20-character alphanumeric string)
@@ -156,28 +156,28 @@ impl<T> SessionInner<T> {
         }
     }
 
-    /// Mark the current session ID as deleted, and clear all data. Can safely be called
+    /// Mark the current session as deleted, and clear all data. Can safely be called
     /// multiple times in a request if needed - the original session will still be deleted.
     pub(crate) fn delete(&mut self) {
         if let Some(current) = self.current.take() {
-            self.deleted.get_or_insert(current.id);
+            self.deleted.get_or_insert(current);
         }
     }
 
     pub(crate) fn get_deleted_id(&self) -> Option<&str> {
-        self.deleted.as_deref()
+        self.deleted.as_ref().map(|s| s.id.as_str())
     }
 
     /// Get all data for storage if the session needs to be saved/updated. Returns a tuple of Options
-    /// representing an updated session along with the id of a deleted session. This should only be
-    /// called once at the end of the request, as it takes ownership of the session data.
-    pub(crate) fn take_for_storage(&mut self) -> (Option<(String, T, u32)>, Option<String>) {
+    /// representing an updated session along with a deleted session. This should only be
+    /// called once at the end of the request, as it takes ownership of all data.
+    pub(crate) fn take_for_storage(&mut self) -> (Option<(String, T, u32)>, Option<(String, T)>) {
         let updated_session = self
             .current
             .take()
             .filter(|c| should_save_session(&c.status))
             .map(|c| (c.id, c.data, c.ttl));
-        (updated_session, self.deleted.take())
+        (updated_session, self.deleted.take().map(|s| (s.id, s.data)))
     }
 }
 

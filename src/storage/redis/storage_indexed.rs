@@ -99,10 +99,7 @@ where
         self.base_storage.save_session(id, value, ttl).await
     }
 
-    async fn delete(&self, id: &str, _cookie_jar: &CookieJar) -> SessionResult<()> {
-        let (value, _) = self.base_storage.fetch_session(id, None).await?;
-        let data = T::from_value(value)?;
-
+    async fn delete(&self, id: &str, data: T) -> SessionResult<()> {
         let pipeline = self.base_storage.pool.next().pipeline();
         let _: () = pipeline.del(self.base_storage.session_key(id)).await?;
         if let Some(identifier) = data.identifier() {
