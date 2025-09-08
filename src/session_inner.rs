@@ -168,7 +168,7 @@ impl<T> SessionInner<T> {
         self.deleted.as_ref().map(|s| s.id.as_str())
     }
 
-    /// Get all data for storage if the session needs to be saved/updated. Returns a tuple of Options
+    /// Get all data for storage if the session needs to be saved or deleted. Returns a tuple of Options
     /// representing an updated session along with a deleted session. This should only be
     /// called once at the end of the request, as it takes ownership of all data.
     pub(crate) fn take_for_storage(&mut self) -> (Option<(String, T, u32)>, Option<(String, T)>) {

@@ -232,7 +232,7 @@ where
         todo!()
     }
 
-    async fn delete(&self, id: &str, cookie_jar: &CookieJar) -> SessionResult<()> {
+    async fn delete(&self, id: &str, data: T) -> SessionResult<()> {
         // Delete session from your storage
         todo!()
     }
