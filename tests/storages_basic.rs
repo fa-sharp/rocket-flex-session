@@ -102,7 +102,11 @@ async fn create_rocket(
         ),
         "redis" => {
             let (pool, prefix) = setup_redis_fred().await;
-            let storage = RedisFredStorage::new(pool.clone(), RedisType::String, &prefix);
+            let storage = RedisFredStorage::builder()
+                .pool(pool.clone())
+                .redis_type(RedisType::String)
+                .prefix(&prefix)
+                .build();
             let fairing = RocketFlexSession::<SessionData>::builder()
                 .storage(storage)
                 .build();
@@ -111,8 +115,12 @@ async fn create_rocket(
         }
         "redis_indexed" => {
             let (pool, prefix) = setup_redis_fred().await;
-            let base_storage = RedisFredStorage::new(pool.clone(), RedisType::String, &prefix);
-            let storage = RedisFredStorageIndexed::new(base_storage, None);
+            let base_storage = RedisFredStorage::builder()
+                .pool(pool.clone())
+                .redis_type(RedisType::String)
+                .prefix(&prefix)
+                .build();
+            let storage = RedisFredStorageIndexed::from_storage(base_storage).build();
             let fairing = RocketFlexSession::<SessionData>::builder()
                 .storage(storage)
                 .build();
@@ -121,7 +129,10 @@ async fn create_rocket(
         }
         "sqlx" => {
             let (pool, db_name) = setup_postgres(POSTGRES_URL).await;
-            let storage = SqlxPostgresStorage::new(pool.clone(), "sessions", None);
+            let storage = SqlxPostgresStorage::builder()
+                .pool(pool.clone())
+                .table_name("sessions")
+                .build();
             let fairing = RocketFlexSession::<SessionData>::builder()
                 .storage(storage)
                 .build();

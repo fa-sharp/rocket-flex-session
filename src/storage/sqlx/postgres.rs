@@ -1,3 +1,4 @@
+use bon::Builder;
 use rocket::{
     async_trait,
     http::CookieJar,
@@ -23,6 +24,7 @@ const EXPIRES_COLUMN: &str = "expires";
 /**
 Session store using PostgreSQL via [sqlx](https://docs.rs/crate/sqlx) that stores session data as a string, and supports session indexing.
 
+# Requirements
 You'll need to implement `TryInto<String>` and `TryFrom<String>` for your session data type. You'll also need to implement [`SessionIdentifier`],
 and its [`Id`](crate::SessionIdentifier::Id) must be a [type supported by sqlx](https://docs.rs/sqlx/latest/sqlx/postgres/types/index.html).
 Expects a table to already exist with the following columns:
@@ -33,35 +35,40 @@ Expects a table to already exist with the following columns:
 | data | `text` NOT NULL (or `jsonb` if using JSON) |
 | `<session identifier name>` | `<type>` (the name and type should match your [`SessionIdentifier`] impl) |
 | expires | `timestamptz` NOT NULL |
+
+# Creating the storage
+Initialize the sqlx pool, then use the builder pattern to create a new instance of `SqlxPostgresStorage`:
+```
+use rocket_flex_session::storage::sqlx::SqlxPostgresStorage;
+use std::time::Duration;
+
+async fn create_storage() -> SqlxPostgresStorage {
+    let url = "postgres://...";
+    let pool = sqlx::PgPool::connect(url).await.unwrap();
+    SqlxPostgresStorage::builder()
+        .pool(pool.clone())
+        .table_name("sessions")
+        // optional auto-deletion of expired sessions
+        .cleanup_interval(Duration::from_secs(600))
+        .build()
+}
+```
 */
+#[derive(Builder)]
 pub struct SqlxPostgresStorage {
+    /// An initialized Postgres connection pool.
     pool: PgPool,
+    /// The name of the table to use for storing sessions.
+    #[builder(into)]
     table_name: String,
+    /// Interval to check for and delete expired sessions. If not set,
+    /// expired sessions won't be cleaned up automatically.
     cleanup_interval: Option<std::time::Duration>,
+    #[builder(skip)]
     shutdown_tx: Mutex<Option<oneshot::Sender<()>>>,
 }
 
 impl SqlxPostgresStorage {
-    /// Creates a new [`SqlxPostgresStorage`].
-    ///
-    /// Parameters:
-    /// - `pool`: An initialized Postgres connection pool.
-    /// - `table_name`: The name of the table to use for storing sessions.
-    /// - `cleanup_interval`: Interval to check for and clean up expired sessions. If `None`,
-    ///    expired sessions won't be cleaned up automatically.
-    pub fn new(
-        pool: PgPool,
-        table_name: &str,
-        cleanup_interval: Option<std::time::Duration>,
-    ) -> SqlxPostgresStorage {
-        Self {
-            pool,
-            table_name: table_name.to_owned(),
-            cleanup_interval,
-            shutdown_tx: Mutex::default(),
-        }
-    }
-
     fn id_from_row(&self, row: &PgRow) -> sqlx::Result<String> {
         row.try_get(ID_COLUMN)
     }

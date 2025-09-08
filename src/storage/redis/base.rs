@@ -1,5 +1,6 @@
+use bon::Builder;
 use fred::{
-    prelude::{HashesInterface, KeysInterface, Pool, Value},
+    prelude::{HashesInterface, KeysInterface, Value},
     types::Expiration,
 };
 
@@ -15,15 +16,14 @@ pub enum RedisType {
 /**
 Redis session storage using the [fred.rs](https://docs.rs/fred) crate.
 
+# Requirements
 You can store the data as a Redis string or hash. Your session data type must implement [`FromValue`](https://docs.rs/fred/latest/fred/types/trait.FromValue.html)
 from the fred.rs crate, as well as the inverse `From<MyData>` or `TryFrom<MyData>` for [`Value`](https://docs.rs/fred/latest/fred/types/enum.Value.html) in order
 to dictate how the data will be converted to/from the Redis data type.
 - For Redis string types, convert to/from `Value::String`
 - For Redis hash types, convert to/from `Value::Map`
 
-💡 Common hashmap types like `HashMap<String, String>` are automatically supported - make sure to use `RedisType::Hash`
-when constructing the storage to ensure they are properly converted and stored as Redis hashes.
-
+# Setup
 ```rust
 use fred::prelude::{Builder, ClientLike, Config, FromValue, Value};
 use rocket_flex_session::{error::SessionError, storage::{redis::{RedisFredStorage, RedisType}}};
@@ -37,16 +37,16 @@ async fn setup_storage() -> RedisFredStorage {
     redis_pool.init().await.expect("Should initialize Redis pool");
 
     // Construct the storage
-    let storage = RedisFredStorage::new(
-        redis_pool,
-        RedisType::String,  // or RedisType::Hash
-        "sess:" // Prefix for Redis keys
-    );
+    let storage = RedisFredStorage::builder()
+        .pool(redis_pool)
+        .prefix("sess:") // Prefix for Redis keys
+        .redis_type(RedisType::String) // or RedisType::Hash
+        .build();
 
     storage
 }
 
-// If using a custom struct for your session data, implement the following...
+// Implement the following for your session data type...
 struct MySessionData {
     user_id: String,
 }
@@ -67,26 +67,18 @@ impl From<MySessionData> for Value {
 }
 ```
 */
+#[derive(Builder)]
 pub struct RedisFredStorage {
+    /// The initialized fred.rs connection pool.
     pub(super) pool: fred::prelude::Pool,
+    /// The prefix to use for session keys.
+    #[builder(into, default = "sess:")]
     pub(super) prefix: String,
+    /// The Redis data type to use for storing sessions.
     pub(super) redis_type: RedisType,
 }
 
 impl RedisFredStorage {
-    /// Create the storage instance.
-    /// # Parameters
-    /// * `pool` - The initialized fred.rs connection pool.
-    /// * `redis_type` - The Redis data type to use for storing sessions.
-    /// * `key_prefix` - The prefix to use for session keys. (e.g. "sess:")
-    pub fn new(pool: Pool, redis_type: RedisType, key_prefix: &str) -> Self {
-        Self {
-            pool,
-            prefix: key_prefix.to_owned(),
-            redis_type,
-        }
-    }
-
     pub(super) fn session_key(&self, id: &str) -> String {
         format!("{}{id}", self.prefix)
     }
