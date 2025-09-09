@@ -1,5 +1,8 @@
 use rocket::{
-    get, routes,
+    get,
+    http::Status,
+    local::blocking::Client,
+    routes,
     serde::{Deserialize, Serialize},
     Build, Rocket,
 };
@@ -151,180 +154,173 @@ fn rocket() -> Rocket<Build> {
     )
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use rocket::http::Status;
-    use rocket::local::blocking::Client;
+fn create_test_client() -> Client {
+    Client::tracked(rocket()).expect("valid rocket instance")
+}
 
-    fn create_test_client() -> Client {
-        Client::tracked(rocket()).expect("valid rocket instance")
-    }
+#[test]
+fn user_login_and_profile() {
+    let client = create_test_client();
 
-    #[test]
-    fn user_login_and_profile() {
-        let client = create_test_client();
+    // Login user
+    let response = client.get("/user/login/user1/alice").dispatch();
+    assert_eq!(response.status(), Status::Ok);
+    assert_eq!(response.into_string().unwrap(), "User alice logged in");
 
-        // Login user
-        let response = client.get("/user/login/user1/alice").dispatch();
-        assert_eq!(response.status(), Status::Ok);
-        assert_eq!(response.into_string().unwrap(), "User alice logged in");
+    // Check profile
+    let response = client.get("/user/profile").dispatch();
+    assert_eq!(response.status(), Status::Ok);
+    assert!(response
+        .into_string()
+        .unwrap()
+        .contains("Profile for alice"));
+}
 
-        // Check profile
-        let response = client.get("/user/profile").dispatch();
-        assert_eq!(response.status(), Status::Ok);
-        assert!(response
-            .into_string()
-            .unwrap()
-            .contains("Profile for alice"));
-    }
+#[test]
+fn multiple_sessions_same_user() {
+    let client = create_test_client();
 
-    #[test]
-    fn multiple_sessions_same_user() {
-        let client = create_test_client();
+    // First session for user1
+    let response = client.get("/user/login/user1/alice").dispatch();
+    assert_eq!(response.status(), Status::Ok);
 
-        // First session for user1
-        let response = client.get("/user/login/user1/alice").dispatch();
-        assert_eq!(response.status(), Status::Ok);
+    // Check that we can see current user's sessions
+    let response = client.get("/user/sessions").dispatch();
+    assert_eq!(response.status(), Status::Ok);
+    // Note: This might show 0 or 1 sessions depending on whether the current
+    // session cookie is being tracked properly in the test
+}
 
-        // Check that we can see current user's sessions
-        let response = client.get("/user/sessions").dispatch();
-        assert_eq!(response.status(), Status::Ok);
-        // Note: This might show 0 or 1 sessions depending on whether the current
-        // session cookie is being tracked properly in the test
-    }
+#[test]
+fn get_sessions_by_user_id() {
+    let client = create_test_client();
 
-    #[test]
-    fn get_sessions_by_user_id() {
-        let client = create_test_client();
+    // Login user
+    let response = client.get("/user/login/user1/alice").dispatch();
+    assert_eq!(response.status(), Status::Ok);
 
-        // Login user
-        let response = client.get("/user/login/user1/alice").dispatch();
-        assert_eq!(response.status(), Status::Ok);
+    // Get sessions for specific user ID
+    let response = client.get("/user/sessions/user1").dispatch();
+    assert_eq!(response.status(), Status::Ok);
+    let body = response.into_string().unwrap();
+    assert!(body.contains("Sessions for user user1"));
+}
 
-        // Get sessions for specific user ID
-        let response = client.get("/user/sessions/user1").dispatch();
-        assert_eq!(response.status(), Status::Ok);
-        let body = response.into_string().unwrap();
-        assert!(body.contains("Sessions for user user1"));
-    }
+#[test]
+fn test_session_ids_retrieval() {
+    let client = create_test_client();
 
-    #[test]
-    fn test_session_ids_retrieval() {
-        let client = create_test_client();
+    // Login user
+    let response = client.get("/user/login/user1/alice").dispatch();
+    assert_eq!(response.status(), Status::Ok);
 
-        // Login user
-        let response = client.get("/user/login/user1/alice").dispatch();
-        assert_eq!(response.status(), Status::Ok);
+    // Get session IDs
+    let response = client.get("/user/session-ids").dispatch();
+    assert_eq!(response.status(), Status::Ok);
+    let body = response.into_string().unwrap();
+    assert!(body.contains("Session IDs for current user"));
+}
 
-        // Get session IDs
-        let response = client.get("/user/session-ids").dispatch();
-        assert_eq!(response.status(), Status::Ok);
-        let body = response.into_string().unwrap();
-        assert!(body.contains("Session IDs for current user"));
-    }
+#[test]
+fn test_invalidate_sessions() {
+    let client = create_test_client();
 
-    #[test]
-    fn test_invalidate_sessions() {
-        let client = create_test_client();
+    // Login user
+    let response = client.get("/user/login/user1/alice").dispatch();
+    assert_eq!(response.status(), Status::Ok);
 
-        // Login user
-        let response = client.get("/user/login/user1/alice").dispatch();
-        assert_eq!(response.status(), Status::Ok);
+    // Invalidate all sessions for current user
+    let response = client.get("/user/invalidate-all").dispatch();
+    assert_eq!(response.status(), Status::Ok);
+    assert!(response
+        .into_string()
+        .unwrap()
+        .contains("1 session(s) for current user invalidated"));
 
-        // Invalidate all sessions for current user
-        let response = client.get("/user/invalidate-all").dispatch();
-        assert_eq!(response.status(), Status::Ok);
-        assert!(response
-            .into_string()
-            .unwrap()
-            .contains("1 session(s) for current user invalidated"));
+    // Profile should now show no session
+    let response = client.get("/user/profile").dispatch();
+    assert_eq!(response.status(), Status::Ok);
+    assert_eq!(response.into_string().unwrap(), "No active session");
+}
 
-        // Profile should now show no session
-        let response = client.get("/user/profile").dispatch();
-        assert_eq!(response.status(), Status::Ok);
-        assert_eq!(response.into_string().unwrap(), "No active session");
-    }
+#[test]
+fn test_invalidate_other_sessions() {
+    let client = create_test_client();
 
-    #[test]
-    fn test_invalidate_other_sessions() {
-        let client = create_test_client();
+    let response = client.get("/user/login/user1/alice").dispatch();
+    assert_eq!(response.status(), Status::Ok);
 
-        let response = client.get("/user/login/user1/alice").dispatch();
-        assert_eq!(response.status(), Status::Ok);
+    // Create two more sessions for the same user, simulating a different device
+    let response = client
+        .get("/user/login/user1/alice")
+        .private_cookie("rocket") // empty cookie
+        .dispatch();
+    assert_eq!(response.status(), Status::Ok);
+    let response = client
+        .get("/user/login/user1/alice")
+        .private_cookie("rocket")
+        .dispatch();
+    assert_eq!(response.status(), Status::Ok);
 
-        // Create two more sessions for the same user, simulating a different device
-        let response = client
-            .get("/user/login/user1/alice")
-            .private_cookie("rocket") // empty cookie
-            .dispatch();
-        assert_eq!(response.status(), Status::Ok);
-        let response = client
-            .get("/user/login/user1/alice")
-            .private_cookie("rocket")
-            .dispatch();
-        assert_eq!(response.status(), Status::Ok);
+    // Invalidate all sessions except the current one
+    let response = client.get("/user/invalidate-other").dispatch();
+    assert_eq!(response.status(), Status::Ok);
+    assert_eq!(
+        response.into_string().unwrap(),
+        "2 session(s) for current user invalidated."
+    );
 
-        // Invalidate all sessions except the current one
-        let response = client.get("/user/invalidate-other").dispatch();
-        assert_eq!(response.status(), Status::Ok);
-        assert_eq!(
-            response.into_string().unwrap(),
-            "2 session(s) for current user invalidated."
-        );
+    // Profile should still show active session
+    let response = client.get("/user/profile").dispatch();
+    assert_eq!(response.status(), Status::Ok);
+    assert!(response
+        .into_string()
+        .unwrap()
+        .contains("Profile for alice"));
+}
 
-        // Profile should still show active session
-        let response = client.get("/user/profile").dispatch();
-        assert_eq!(response.status(), Status::Ok);
-        assert!(response
-            .into_string()
-            .unwrap()
-            .contains("Profile for alice"));
-    }
+#[test]
+fn test_invalidate_sessions_by_user_id() {
+    let client = create_test_client();
 
-    #[test]
-    fn test_invalidate_sessions_by_user_id() {
-        let client = create_test_client();
+    // Login user
+    let response = client.get("/user/login/user2/bob").dispatch();
+    assert_eq!(response.status(), Status::Ok);
 
-        // Login user
-        let response = client.get("/user/login/user2/bob").dispatch();
-        assert_eq!(response.status(), Status::Ok);
+    // Invalidate sessions for specific user
+    let response = client.get("/user/invalidate-all/user2").dispatch();
+    assert_eq!(response.status(), Status::Ok);
+    assert!(response
+        .into_string()
+        .unwrap()
+        .contains("1 session(s) for user user2 invalidated"));
+}
 
-        // Invalidate sessions for specific user
-        let response = client.get("/user/invalidate-all/user2").dispatch();
-        assert_eq!(response.status(), Status::Ok);
-        assert!(response
-            .into_string()
-            .unwrap()
-            .contains("1 session(s) for user user2 invalidated"));
-    }
+#[test]
+fn test_no_session_scenarios() {
+    let client = create_test_client();
 
-    #[test]
-    fn test_no_session_scenarios() {
-        let client = create_test_client();
+    // Try to get sessions without being logged in
+    let response = client.get("/user/sessions").dispatch();
+    assert_eq!(response.status(), Status::Ok);
+    assert!(response
+        .into_string()
+        .unwrap()
+        .contains("No current session"));
 
-        // Try to get sessions without being logged in
-        let response = client.get("/user/sessions").dispatch();
-        assert_eq!(response.status(), Status::Ok);
-        assert!(response
-            .into_string()
-            .unwrap()
-            .contains("No current session"));
+    // Try to get session IDs without being logged in
+    let response = client.get("/user/session-ids").dispatch();
+    assert_eq!(response.status(), Status::Ok);
+    assert!(response
+        .into_string()
+        .unwrap()
+        .contains("No current session"));
 
-        // Try to get session IDs without being logged in
-        let response = client.get("/user/session-ids").dispatch();
-        assert_eq!(response.status(), Status::Ok);
-        assert!(response
-            .into_string()
-            .unwrap()
-            .contains("No current session"));
-
-        // Try to invalidate sessions without being logged in
-        let response = client.get("/user/invalidate-all").dispatch();
-        assert_eq!(response.status(), Status::Ok);
-        assert!(response
-            .into_string()
-            .unwrap()
-            .contains("No current session"));
-    }
+    // Try to invalidate sessions without being logged in
+    let response = client.get("/user/invalidate-all").dispatch();
+    assert_eq!(response.status(), Status::Ok);
+    assert!(response
+        .into_string()
+        .unwrap()
+        .contains("No current session"));
 }

@@ -17,9 +17,9 @@ pub enum RedisType {
 Redis session storage using the [fred.rs](https://docs.rs/fred) crate.
 
 # Requirements
-You can store the data as a Redis string or hash. Your session data type must implement [`FromValue`](https://docs.rs/fred/latest/fred/types/trait.FromValue.html)
-from the fred.rs crate, as well as the inverse `From<MyData>` or `TryFrom<MyData>` for [`Value`](https://docs.rs/fred/latest/fred/types/enum.Value.html) in order
-to dictate how the data will be converted to/from the Redis data type.
+You can store the data as a Redis string or hash. You'll need to implement [`FromValue`](https://docs.rs/fred/latest/fred/types/trait.FromValue.html)
+for your session data type, as well as the inverse `From<MyData>` or `TryFrom<MyData>` for [`Value`](https://docs.rs/fred/latest/fred/types/enum.Value.html) in order
+to dictate how the data will be converted (see a basic example below).
 - For Redis string types, convert to/from `Value::String`
 - For Redis hash types, convert to/from `Value::Map`
 
