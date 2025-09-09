@@ -1,4 +1,4 @@
-use bon::Builder;
+use bon::bon;
 use fred::prelude::{FromValue, HashesInterface, KeysInterface, SetsInterface, Value};
 use rocket::http::CookieJar;
 
@@ -10,7 +10,7 @@ use crate::{
 
 use super::RedisFredStorage;
 
-const DEFAULT_INDEX_TTL: u32 = 60 * 60 * 24 * 7 * 2; // 2 weeks
+const TWO_WEEKS_TTL: u32 = 60 * 60 * 24 * 7 * 2; // 2 weeks
 
 /// Redis session storage using the [fred.rs](https://docs.rs/fred) crate. This is a wrapper around
 /// [`RedisFredStorage`] that adds support for indexing sessions by an identifier (e.g. `user_id`).
@@ -21,18 +21,37 @@ const DEFAULT_INDEX_TTL: u32 = 60 * 60 * 24 * 7 * 2; // 2 weeks
 /// must implement `ToString`. Sessions are tracked in Redis sets, with a key format of:
 ///
 /// `<key_prefix><identifier_name>:<id>` (e.g.: `sess:user_id:1`)
-#[derive(Builder)]
-#[builder(start_fn = from_storage)]
 pub struct RedisFredStorageIndexed {
-    #[builder(start_fn)]
-    /// The [`RedisFredStorage`] instance to use.
     base_storage: RedisFredStorage,
-    #[builder(default = DEFAULT_INDEX_TTL)]
-    /// The TTL for the session index - should match your longest expected session duration (default: 2 weeks).
     index_ttl: u32,
 }
 
+#[bon]
 impl RedisFredStorageIndexed {
+    #[builder]
+    pub fn builder(
+        /// The initialized fred.rs connection pool.
+        pool: fred::prelude::Pool,
+        /// The prefix to use for session keys.
+        #[builder(into, default = "sess:")]
+        prefix: String,
+        /// The Redis data type to use for storing sessions.
+        redis_type: super::RedisType,
+        /// The TTL for the session index - should match your longest expected session duration (default: 2 weeks).
+        #[builder(default = TWO_WEEKS_TTL)]
+        index_ttl: u32,
+    ) -> Self {
+        let base_storage = RedisFredStorage::builder()
+            .pool(pool)
+            .prefix(prefix)
+            .redis_type(redis_type)
+            .build();
+        Self {
+            base_storage,
+            index_ttl,
+        }
+    }
+
     fn session_index_key(&self, identifier_name: &str, identifier: &impl ToString) -> String {
         format!(
             "{}{identifier_name}:{}",

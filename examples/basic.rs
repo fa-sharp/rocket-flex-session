@@ -7,7 +7,7 @@ use rocket::{http::Status, routes, serde::json::Json};
 use rocket_flex_session::{
     storage::{
         memory::MemoryStorageIndexed,
-        redis::{RedisFredStorage, RedisFredStorageIndexed, RedisType},
+        redis::{RedisFredStorageIndexed, RedisType},
     },
     RocketFlexSession, Session, SessionIdentifier,
 };
@@ -70,11 +70,10 @@ async fn basic() -> _ {
             let pool = fred::prelude::Builder::from_config(config)
                 .build_pool(4)
                 .expect("Failed to build Redis pool");
-            let base_storage = RedisFredStorage::builder()
+            let storage = RedisFredStorageIndexed::builder()
                 .pool(pool.clone())
                 .redis_type(RedisType::String) // Store session data as a Redis string
                 .build();
-            let storage = RedisFredStorageIndexed::from_storage(base_storage).build();
             builder.storage(storage).build()
         }
     };

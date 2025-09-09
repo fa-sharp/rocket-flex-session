@@ -6,7 +6,7 @@ use rocket::futures::FutureExt;
 use rocket_flex_session::{
     storage::{
         memory::MemoryStorageIndexed,
-        redis::{RedisFredStorage, RedisFredStorageIndexed, RedisType},
+        redis::{RedisFredStorageIndexed, RedisType},
         sqlx::SqlxPostgresStorage,
         SessionStorageIndexed,
     },
@@ -88,12 +88,11 @@ async fn create_storage(
         }
         "redis" => {
             let (pool, prefix) = setup_redis_fred().await;
-            let base_storage = RedisFredStorage::builder()
+            let storage = RedisFredStorageIndexed::builder()
                 .pool(pool.clone())
                 .prefix(&prefix)
                 .redis_type(RedisType::Hash)
                 .build();
-            let storage = RedisFredStorageIndexed::from_storage(base_storage).build();
             let cleanup_task = teardown_redis_fred(pool, prefix).boxed();
             (Box::new(storage), Some(cleanup_task))
         }
