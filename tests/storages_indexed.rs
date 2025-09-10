@@ -1,13 +1,14 @@
 mod common;
 
-use std::{collections::HashMap, future::Future, pin::Pin};
+use std::{future::Future, pin::Pin};
 
-use rocket::{futures::FutureExt, local::asynchronous::Client};
+use rocket::futures::FutureExt;
 use rocket_flex_session::{
+    error::SessionError,
     storage::{
         memory::MemoryStorageIndexed,
-        redis::{RedisFredStorage, RedisFredStorageIndexed, RedisType},
-        sqlx::SqlxPostgresStorage,
+        redis::{RedisFormat, RedisFredStorage, RedisValue, SessionRedis},
+        sqlx::{SessionSqlx, SqlxPostgresStorage, SqlxSqliteStorage},
         SessionStorageIndexed,
     },
     SessionIdentifier,
@@ -15,7 +16,8 @@ use rocket_flex_session::{
 use test_case::test_case;
 
 use crate::common::{
-    setup_postgres, setup_redis_fred, teardown_postgres, teardown_redis_fred, POSTGRES_URL,
+    setup_postgres, setup_redis_fred, setup_sqlite, teardown_postgres, teardown_redis_fred,
+    teardown_sqlite, POSTGRES_URL,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -23,26 +25,41 @@ struct TestSession {
     user_id: String,
     data: String,
 }
+
 impl SessionIdentifier for TestSession {
     type Id = String;
 
-    fn identifier(&self) -> Option<&Self::Id> {
-        Some(&self.user_id)
+    fn identifier(&self) -> Option<Self::Id> {
+        Some(self.user_id.clone())
     }
 }
 
-// Impls for Sqlx
-impl TryFrom<TestSession> for String {
+impl SessionSqlx<sqlx::Postgres> for TestSession {
     type Error = std::io::Error;
+    type Data = String;
 
-    fn try_from(value: TestSession) -> Result<Self, Self::Error> {
-        Ok(format!("{}:{}", value.user_id, value.data))
+    fn into_sql(self) -> Result<Self::Data, Self::Error> {
+        Ok(format!("{}:{}", self.user_id, self.data))
+    }
+    fn from_sql(value: Self::Data) -> Result<Self, Self::Error> {
+        let (user_id, data) = value.split_once(':').ok_or(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "Invalid session format",
+        ))?;
+        Ok(TestSession {
+            user_id: user_id.to_string(),
+            data: data.to_string(),
+        })
     }
 }
-impl TryFrom<String> for TestSession {
+impl SessionSqlx<sqlx::Sqlite> for TestSession {
     type Error = std::io::Error;
+    type Data = String;
 
-    fn try_from(value: String) -> Result<Self, Self::Error> {
+    fn into_sql(self) -> Result<Self::Data, Self::Error> {
+        Ok(format!("{}:{}", self.user_id, self.data))
+    }
+    fn from_sql(value: Self::Data) -> Result<Self, Self::Error> {
         let (user_id, data) = value.split_once(':').ok_or(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
             "Invalid session format",
@@ -54,24 +71,33 @@ impl TryFrom<String> for TestSession {
     }
 }
 
-// Impls for fred.rs Redis
-const USER_ID_KEY: fred::prelude::Key = fred::types::Key::from_static_str("user_id");
-const DATA_KEY: fred::prelude::Key = fred::types::Key::from_static_str("data");
-impl fred::types::FromValue for TestSession {
-    fn from_value(value: fred::prelude::Value) -> Result<Self, fred::prelude::Error> {
-        let mut map = value.into_map()?;
-        Ok(Self {
-            user_id: map.remove(&USER_ID_KEY).unwrap().convert()?,
-            data: map.remove(&DATA_KEY).unwrap().convert()?,
-        })
+impl SessionRedis for TestSession {
+    const REDIS_FORMAT: RedisFormat = RedisFormat::Map;
+
+    type Error = SessionError;
+
+    fn into_redis(self) -> Result<RedisValue, Self::Error> {
+        let map = vec![
+            ("user_id".to_owned(), self.user_id),
+            ("data".to_owned(), self.data),
+        ];
+        Ok(RedisValue::Map(map))
     }
-}
-impl From<TestSession> for fred::types::Value {
-    fn from(value: TestSession) -> Self {
-        let hash: HashMap<fred::prelude::Key, String> =
-            HashMap::from([(USER_ID_KEY, value.user_id), (DATA_KEY, value.data)]);
-        let fred_map = fred::types::Map::try_from(hash).unwrap();
-        fred::types::Value::Map(fred_map)
+
+    fn from_redis(value: RedisValue) -> Result<Self, Self::Error> {
+        let map = value.into_map().expect("should be map");
+        let (mut user_id, mut data) = (None, None);
+        for (key, value) in map {
+            match key.as_str() {
+                "user_id" => user_id = Some(value),
+                "data" => data = Some(value),
+                _ => {}
+            }
+        }
+        match (user_id, data) {
+            (Some(user_id), Some(data)) => Ok(Self { user_id, data }),
+            _ => Err(SessionError::InvalidData),
+        }
     }
 }
 
@@ -88,16 +114,15 @@ async fn create_storage(
         }
         "redis" => {
             let (pool, prefix) = setup_redis_fred().await;
-            let base_storage = RedisFredStorage::builder()
+            let storage = RedisFredStorage::builder()
                 .pool(pool.clone())
                 .prefix(&prefix)
-                .redis_type(RedisType::Hash)
+                .index_prefix(format!("{prefix}user:"))
                 .build();
-            let storage = RedisFredStorageIndexed::from_storage(base_storage).build();
             let cleanup_task = teardown_redis_fred(pool, prefix).boxed();
             (Box::new(storage), Some(cleanup_task))
         }
-        "sqlx" => {
+        "sqlx_postgres" => {
             let (pool, db_name) = setup_postgres(POSTGRES_URL).await;
             let storage = SqlxPostgresStorage::builder()
                 .pool(pool.clone())
@@ -106,12 +131,22 @@ async fn create_storage(
             let cleanup_task = teardown_postgres(pool, db_name).boxed();
             (Box::new(storage), Some(cleanup_task))
         }
+        "sqlx_sqlite" => {
+            let pool = setup_sqlite().await;
+            let storage = SqlxSqliteStorage::builder()
+                .pool(pool.clone())
+                .table_name("sessions")
+                .build();
+            let cleanup_task = teardown_sqlite(pool).boxed();
+            (Box::new(storage), Some(cleanup_task))
+        }
         _ => unimplemented!(),
     }
 }
 
 #[test_case("memory"; "Memory")]
-#[test_case("sqlx"; "Sqlx Postgres")]
+#[test_case("sqlx_postgres"; "Sqlx Postgres")]
+#[test_case("sqlx_sqlite"; "Sqlx SQLite")]
 #[test_case("redis"; "Redis Fred")]
 #[rocket::async_test]
 async fn basic_operations(storage_case: &str) {
@@ -174,7 +209,8 @@ async fn basic_operations(storage_case: &str) {
 }
 
 #[test_case("memory"; "Memory")]
-#[test_case("sqlx"; "Sqlx Postgres")]
+#[test_case("sqlx_postgres"; "Sqlx Postgres")]
+#[test_case("sqlx_sqlite"; "Sqlx SQLite")]
 #[test_case("redis"; "Redis Fred")]
 #[rocket::async_test]
 async fn invalidate_by_identifier(storage_case: &str) {
@@ -244,7 +280,8 @@ async fn invalidate_by_identifier(storage_case: &str) {
 }
 
 #[test_case("memory"; "Memory")]
-#[test_case("sqlx"; "Sqlx Postgres")]
+#[test_case("sqlx_postgres"; "Sqlx Postgres")]
+#[test_case("sqlx_sqlite"; "Sqlx SQLite")]
 #[test_case("redis"; "Redis Fred")]
 #[rocket::async_test]
 async fn invalidate_all_but_one_by_identifier(storage_case: &str) {
@@ -304,11 +341,11 @@ async fn invalidate_all_but_one_by_identifier(storage_case: &str) {
 }
 
 #[test_case("memory"; "Memory")]
-#[test_case("sqlx"; "Sqlx Postgres")]
+#[test_case("sqlx_postgres"; "Sqlx Postgres")]
+#[test_case("sqlx_sqlite"; "Sqlx SQLite")]
 #[test_case("redis"; "Redis Fred")]
 #[rocket::async_test]
 async fn delete_single_session(storage_case: &str) {
-    let client = Client::tracked(rocket::build()).await.unwrap();
     let (storage, cleanup_task) = create_storage(storage_case).await;
     storage.setup().await.unwrap();
 
@@ -336,7 +373,7 @@ async fn delete_single_session(storage_case: &str) {
     );
 
     // Delete one session
-    storage.delete("sid1", &client.cookies()).await.unwrap();
+    storage.delete("sid1", session1.clone()).await.unwrap();
 
     // Verify only one session remains
     let remaining_sessions = storage
@@ -355,7 +392,8 @@ async fn delete_single_session(storage_case: &str) {
 }
 
 #[test_case("memory"; "Memory")]
-#[test_case("sqlx"; "Sqlx Postgres")]
+#[test_case("sqlx_postgres"; "Sqlx Postgres")]
+#[test_case("sqlx_sqlite"; "Sqlx SQLite")]
 #[test_case("redis"; "Redis Fred")]
 #[rocket::async_test]
 async fn nonexistent_identifier(storage_case: &str) {

@@ -58,6 +58,26 @@ fn delete_session(mut session: Session<User>) -> &'static str {
     "Session deleted"
 }
 
+#[post("/tap_session/update/<name>")]
+fn tap_session_update(mut session: Session<User>, name: &str) -> String {
+    session.tap_mut(|data| {
+        if let Some(user) = data {
+            user.name = name.to_string();
+        }
+    });
+    session.id().unwrap().to_owned()
+}
+
+#[post("/tap_session/delete")]
+fn tap_session_delete(mut session: Session<User>) -> &'static str {
+    session.tap_mut(|data| {
+        if data.is_some() {
+            data.take();
+        }
+    });
+    "Session deleted"
+}
+
 #[get("/get_hash_session/<key>")]
 fn get_hash_session(session: Session<SessionHash>, key: &str) -> String {
     match session.get_key(key) {
@@ -91,6 +111,8 @@ fn create_rocket() -> Rocket<Build> {
                 get_session,
                 set_session,
                 delete_session,
+                tap_session_update,
+                tap_session_delete,
                 get_hash_session,
                 set_hash_session,
             ],
@@ -143,6 +165,39 @@ fn test_delete_session() {
     // Set then delete session
     client.post("/set_session").dispatch();
     let response = client.post("/delete_session").dispatch();
+    assert_eq!(response.status(), Status::Ok);
+
+    // Verify session was deleted
+    let response = client.get("/get_session").dispatch();
+    assert_eq!(response.into_string().unwrap(), "No session");
+}
+
+#[test]
+fn test_tap_session() {
+    let client = Client::tracked(create_rocket()).unwrap();
+
+    // Set session
+    client.post("/set_session").dispatch();
+
+    // Tap session update
+    let response = client.post("/tap_session/update/Bob").dispatch();
+    assert_eq!(response.status(), Status::Ok);
+    assert_eq!(response.cookies().get_private("rocket"), None);
+
+    // Verify session was updated
+    let response = client.get("/get_session").dispatch();
+    assert_eq!(response.into_string().unwrap(), "User: Bob (123)");
+
+    // Tap session update again
+    let response = client.post("/tap_session/update/Luna").dispatch();
+    assert_eq!(response.status(), Status::Ok);
+
+    // Verify session was updated
+    let response = client.get("/get_session").dispatch();
+    assert_eq!(response.into_string().unwrap(), "User: Luna (123)");
+
+    // Tap session delete
+    let response = client.post("/tap_session/delete").dispatch();
     assert_eq!(response.status(), Status::Ok);
 
     // Verify session was deleted

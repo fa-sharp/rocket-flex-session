@@ -25,7 +25,7 @@ where
     async fn save(&self, id: &str, data: T, ttl: u32) -> SessionResult<()>;
 
     /// Delete a session in storage. This will be performed at the end of the request lifecycle.
-    async fn delete(&self, id: &str, cookie_jar: &CookieJar) -> SessionResult<()>;
+    async fn delete(&self, id: &str, data: T) -> SessionResult<()>;
 
     /// Optional callback when there's a pending change to the session data. A `data` value
     /// of `None` indicates a deleted session. This callback can be used by cookie-based

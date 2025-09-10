@@ -1,6 +1,6 @@
 use bon::bon;
 use rocket::{async_trait, http::CookieJar};
-use sqlx::{postgres::PgRow, PgPool, Postgres, Row};
+use sqlx::{sqlite::SqliteRow, Row, Sqlite, SqlitePool};
 
 use crate::{
     error::{SessionError, SessionResult},
@@ -9,11 +9,10 @@ use crate::{
 
 use super::*;
 
-/**
-Session store using PostgreSQL via [sqlx](https://docs.rs/crate/sqlx).
+/** Session store using SQLite via [sqlx](https://docs.rs/crate/sqlx).
 
 # Requirements
-- You must pass in an initialized sqlx Postgres connection pool.
+- You must pass in an initialized sqlx SQLite connection pool.
 - Your session data type must implement [`SessionSqlx`] to configure how to convert & store session data.
 - Your session data type must implement [`SessionIdentifier`]. The SessionIdentifier's
 [Id](`SessionIdentifier::Id`) type must be a type supported by sqlx.
@@ -21,51 +20,26 @@ Session store using PostgreSQL via [sqlx](https://docs.rs/crate/sqlx).
 
 | Name | Type |
 |------|---------|
-| id   | `text` PRIMARY KEY |
-| data | `text` NOT NULL (or `jsonb`)  |
-| user_id | SQL type of `SessionIdentifier::Id` |
-| expires | `timestamptz` NOT NULL |
+| id   | TEXT NOT NULL PRIMARY KEY |
+| data | TEXT NOT NULL  |
+| user_id | TEXT |
+| expires | TEXT NOT NULL |
 
 The name of the session index column ("user_id") can be customized when building the storage.
 
-# Session storage
-Sessions are stored in the table specified by `table_name`, along with the optional identifier
-(typically a user ID) and the session's expiration time. You can enable automatic deletion of
-expired sessions by setting the `cleanup_interval` option. This storage provider does not
-create any table or index for you, so you'll need to do that in your existing migration flow.
-
-# Example
-Initialize the sqlx pool, then use the builder pattern to create a new instance of `SqlxPostgresStorage`:
-```
-use rocket_flex_session::storage::sqlx::SqlxPostgresStorage;
-use std::time::Duration;
-
-async fn create_storage() -> SqlxPostgresStorage {
-    let url = "postgres://...";
-    let pool = sqlx::PgPool::connect(url).await.unwrap();
-    SqlxPostgresStorage::builder()
-        .pool(pool.clone())
-        .table_name("sessions")
-        // name of the column used to group sessions
-        .index_column("user_id")
-        // optional auto-deletion of expired sessions
-        .cleanup_interval(Duration::from_secs(600))
-        .build()
-}
-```
-*/
-pub struct SqlxPostgresStorage {
-    pool: PgPool,
-    base: SqlxBase<Postgres>,
+ */
+pub struct SqlxSqliteStorage {
+    pool: SqlitePool,
+    base: SqlxBase<Sqlite>,
     cleanup_task: SqlxCleanupTask,
 }
 
 #[bon]
-impl SqlxPostgresStorage {
+impl SqlxSqliteStorage {
     #[builder]
     pub fn new(
-        /// An initialized Postgres connection pool.
-        pool: PgPool,
+        /// An initialized SQLite connection pool.
+        pool: SqlitePool,
         /// The name of the table to use for storing sessions.
         #[builder(into)]
         table_name: String,
@@ -85,10 +59,10 @@ impl SqlxPostgresStorage {
 }
 
 #[async_trait]
-impl<T> SessionStorage<T> for SqlxPostgresStorage
+impl<T> SessionStorage<T> for SqlxSqliteStorage
 where
-    T: SessionSqlx<Postgres>,
-    <T as SessionIdentifier>::Id: for<'q> sqlx::Encode<'q, Postgres> + sqlx::Type<Postgres>,
+    T: SessionSqlx<Sqlite>,
+    <T as SessionIdentifier>::Id: for<'q> sqlx::Encode<'q, Sqlite> + sqlx::Type<Sqlite>,
 {
     fn as_indexed_storage(&self) -> Option<&dyn SessionStorageIndexed<T>> {
         Some(self)
@@ -100,7 +74,7 @@ where
         ttl: Option<u32>,
         _cookie_jar: &CookieJar,
     ) -> SessionResult<(T, u32)> {
-        let row: Option<PgRow> = self.base.load(id, ttl).await?;
+        let row: Option<SqliteRow> = self.base.load(id, ttl).await?;
         let row = row.ok_or(SessionError::NotFound)?;
 
         let value = row.try_get(DATA_COLUMN)?;
@@ -134,10 +108,10 @@ where
 }
 
 #[async_trait]
-impl<T> SessionStorageIndexed<T> for SqlxPostgresStorage
+impl<T> SessionStorageIndexed<T> for SqlxSqliteStorage
 where
-    T: SessionSqlx<Postgres>,
-    <T as SessionIdentifier>::Id: for<'q> sqlx::Encode<'q, Postgres> + sqlx::Type<Postgres>,
+    T: SessionSqlx<Sqlite>,
+    <T as SessionIdentifier>::Id: for<'q> sqlx::Encode<'q, Sqlite> + sqlx::Type<Sqlite>,
 {
     async fn get_session_ids_by_identifier(&self, id: &T::Id) -> SessionResult<Vec<String>> {
         let rows = self.base.session_ids_belonging_to(id).await?;
@@ -158,7 +132,6 @@ where
                 let value = row.try_get(DATA_COLUMN).ok()?;
                 let data = T::from_sql(value).ok()?;
                 let expires = row.try_get(EXPIRES_COLUMN).ok()?;
-
                 Some((id, data, expires_to_ttl(&expires)))
             })
             .collect();

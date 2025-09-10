@@ -3,7 +3,6 @@ use rocket::{
     time::{Duration, OffsetDateTime},
 };
 use std::{
-    fmt::Display,
     marker::{Send, Sync},
     sync::{Mutex, MutexGuard},
 };
@@ -58,15 +57,6 @@ where
     pub(crate) storage: &'a dyn SessionStorage<T>,
 }
 
-impl<T> Display for Session<'_, T>
-where
-    T: Send + Sync + Clone,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "Session(id: {:?})", self.get_inner_lock().get_id())
-    }
-}
-
 impl<'a, T> Session<'a, T>
 where
     T: Send + Sync + Clone,
@@ -101,7 +91,7 @@ where
     }
 
     /// Get a reference to the current session data via a closure.
-    /// The closure's argument will be `None` if there's no active session.
+    /// Data will be `None` if there's no active session.
     ///
     /// # Example
     /// ```rust,ignore
@@ -121,7 +111,8 @@ where
     }
 
     /// Get a mutable reference to the current session data via a closure.
-    /// The closure's argument will be `None` if there's no active session.
+    /// Data will be `None` if there's no active session. If the data is
+    /// set to `None` in the closure, the session will be deleted.
     ///
     /// # Example
     /// ```rust,ignore

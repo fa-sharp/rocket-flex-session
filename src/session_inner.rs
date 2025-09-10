@@ -2,28 +2,52 @@ use rand::distr::{Alphanumeric, SampleString};
 
 use crate::SessionIdentifier;
 
-/// Represents a current, active session
+/** Mutable session state, stored in Rocket's request local cache */
+#[derive(Debug)]
+pub(crate) struct SessionInner<T> {
+    /// The current, active session
+    current: Option<ActiveSession<T>>,
+    /// The original session if deleted during the request
+    deleted: Option<ActiveSession<T>>,
+}
+impl<T> Default for SessionInner<T> {
+    fn default() -> Self {
+        Self::new_empty()
+    }
+}
+
+/// Represents an active session
+#[derive(Debug)]
 struct ActiveSession<T> {
     /// Session ID (20-character alphanumeric string)
     id: String,
-    /// Original session data
+    /// Session data
     data: T,
-    /// Updated session data
-    pending_data: Option<T>,
     /// Time-to-live in seconds
     ttl: u32,
-    /// Whether this is a new session that hasn't been stored yet
-    new: bool,
+    /// Status of the active session
+    status: ActiveSessionStatus,
 }
-impl<T: Clone> ActiveSession<T> {
+
+/// Status of the active session
+#[derive(Debug, PartialEq, Eq)]
+enum ActiveSessionStatus {
+    /// This is a new session that hasn't been stored yet
+    New,
+    /// This is an existing session that is unmodified
+    Existing,
+    /// This is an existing session that has been updated
+    Updated,
+}
+
+impl<T> ActiveSession<T> {
     /// Create a new active session with a generated ID, to be saved in storage
     fn new(new_data: T, ttl: u32) -> Self {
         Self {
             id: Alphanumeric.sample_string(&mut rand::rng(), 20),
-            data: new_data.clone(),
-            pending_data: Some(new_data),
+            data: new_data,
             ttl,
-            new: true,
+            status: ActiveSessionStatus::New,
         }
     }
     /// Active session that already exists in storage
@@ -31,37 +55,21 @@ impl<T: Clone> ActiveSession<T> {
         Self {
             id: id.to_owned(),
             data,
-            pending_data: None,
             ttl,
-            new: false,
+            status: ActiveSessionStatus::Existing,
         }
     }
 }
 
-/** Mutable session state, passed from the Session request guard */
-pub(crate) struct SessionInner<T> {
-    /// The current, active session
-    current: Option<ActiveSession<T>>,
-    /// The ID of the original session if deleted during the request
-    deleted: Option<String>,
-}
-impl<T: Clone> Default for SessionInner<T> {
-    fn default() -> Self {
-        Self::new_empty()
-    }
-}
-
-impl<T> SessionInner<T>
-where
-    T: Clone,
-{
+impl<T> SessionInner<T> {
+    /// New inner session with no active session
     pub(crate) fn new_empty() -> Self {
         Self {
             current: None,
             deleted: None,
         }
     }
-
+    /// New inner session with an existing active session
     pub(crate) fn new_existing(id: &str, data: T, ttl: u32) -> Self {
         Self {
             current: Some(ActiveSession::existing(id, data, ttl)),
@@ -74,9 +82,7 @@ where
     }
 
     pub(crate) fn get_current_data(&self) -> Option<&T> {
-        self.current
-            .as_ref()
-            .map(|s| s.pending_data.as_ref().unwrap_or(&s.data))
+        self.current.as_ref().map(|s| &s.data)
     }
 
     pub(crate) fn get_current_ttl(&self) -> Option<u32> {
@@ -84,12 +90,17 @@ where
     }
 
     pub(crate) fn is_new(&self) -> bool {
-        self.current.as_ref().map(|s| s.new).unwrap_or(false)
+        self.current
+            .as_ref()
+            .map_or(false, |s| s.status == ActiveSessionStatus::New)
     }
 
     pub(crate) fn set_data(&mut self, new_data: T, default_ttl: u32) {
         match &mut self.current {
-            Some(current) => current.pending_data = Some(new_data),
+            Some(current) => {
+                current.data = new_data;
+                self.mark_updated();
+            }
             None => self.current = Some(ActiveSession::new(new_data, default_ttl)),
         }
     }
@@ -97,9 +108,7 @@ where
     pub(crate) fn set_ttl(&mut self, new_ttl: u32) {
         if let Some(current) = &mut self.current {
             current.ttl = new_ttl;
-            if current.pending_data.is_none() {
-                current.pending_data = Some(current.data.clone());
-            }
+            self.mark_updated();
         }
     }
 
@@ -111,23 +120,24 @@ where
     where
         UpdateFn: FnOnce(&mut Option<T>) -> R,
     {
-        match &mut self.current {
+        match self.current.take() {
             Some(current) => {
-                if current.pending_data.is_none() {
-                    current.pending_data = Some(current.data.clone());
-                }
-                let response = callback(&mut current.pending_data);
-                let is_deleted = current.pending_data.is_none();
-                if is_deleted {
+                let mut updated_data = Some(current.data);
+                let response = callback(&mut updated_data);
+                if let Some(data) = updated_data {
+                    self.current = Some(ActiveSession { data, ..current });
+                    self.mark_updated();
+                    (response, false)
+                } else {
                     self.delete();
-                };
-                (response, is_deleted)
+                    (response, true)
+                }
             }
             None => {
-                let mut pending_data = None;
-                let response = callback(&mut pending_data);
-                if let Some(new_data) = pending_data {
-                    self.current = Some(ActiveSession::new(new_data, default_ttl));
+                let mut new_data: Option<T> = None;
+                let response = callback(&mut new_data);
+                if let Some(data) = new_data {
+                    self.current = Some(ActiveSession::new(data, default_ttl));
                     (response, false)
                 } else {
                     self.delete();
@@ -137,36 +147,49 @@ where
         }
     }
 
-    /// Mark the current session ID as deleted, and clear all data. Can safely be called
+    /// If this is an existing session, mark it as updated to ensure it will be saved.
+    pub(crate) fn mark_updated(&mut self) {
+        if let Some(current) = self.current.as_mut() {
+            if current.status == ActiveSessionStatus::Existing {
+                current.status = ActiveSessionStatus::Updated;
+            }
+        }
+    }
+
+    /// Mark the current session as deleted, and clear all data. Can safely be called
     /// multiple times in a request if needed - the original session will still be deleted.
     pub(crate) fn delete(&mut self) {
         if let Some(current) = self.current.take() {
-            self.deleted.get_or_insert(current.id);
+            self.deleted.get_or_insert(current);
         }
     }
 
     pub(crate) fn get_deleted_id(&self) -> Option<&str> {
-        self.deleted.as_deref()
+        self.deleted.as_ref().map(|s| s.id.as_str())
     }
 
-    /// Take all data needed to update session storage. Returns a tuple of Options
-    /// representing an updated session along with the id of a deleted session.
-    /// This should only be called once at the end of the request.
-    pub(crate) fn take_for_storage(&mut self) -> (Option<(String, T, u32)>, Option<String>) {
-        (
-            self.current
-                .take()
-                .and_then(|c| c.pending_data.map(|data| (c.id, data, c.ttl))),
-            self.deleted.take(),
-        )
+    /// Get all data for storage if the session needs to be saved or deleted. Returns a tuple of Options
+    /// representing an updated session along with a deleted session. This should only be
+    /// called once at the end of the request, as it takes ownership of all data.
+    pub(crate) fn take_for_storage(&mut self) -> (Option<(String, T, u32)>, Option<(String, T)>) {
+        let updated_session = self
+            .current
+            .take()
+            .filter(|c| should_save_session(&c.status))
+            .map(|c| (c.id, c.data, c.ttl));
+        (updated_session, self.deleted.take().map(|s| (s.id, s.data)))
     }
+}
+
+fn should_save_session(status: &ActiveSessionStatus) -> bool {
+    *status == ActiveSessionStatus::New || *status == ActiveSessionStatus::Updated
 }
 
 impl<T> SessionInner<T>
 where
-    T: SessionIdentifier + Clone,
+    T: SessionIdentifier,
 {
-    pub(crate) fn get_current_identifier(&self) -> Option<&T::Id> {
+    pub(crate) fn get_current_identifier(&self) -> Option<T::Id> {
         self.get_current_data().and_then(|data| data.identifier())
     }
 }

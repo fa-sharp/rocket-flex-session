@@ -15,9 +15,15 @@ pub enum SessionError {
     /// Session was found but it was expired
     #[error("Session expired")]
     Expired,
-    /// Error serializing or deserializing the session data
-    #[error("Failed to serialize/deserialize session: {0}")]
+    /// Error serializing the session data
+    #[error("Failed to serialize session: {0}")]
     Serialization(Box<dyn std::error::Error + Send + Sync>),
+    /// Error parsing the session data
+    #[error("Failed to parse session: {0}")]
+    Parsing(Box<dyn std::error::Error + Send + Sync>),
+    /// Invalid data when trying to read the session data
+    #[error("Invalid data")]
+    InvalidData,
     /// An indexing operation failed because the storage provider doesn't
     /// implement [SessionStorageIndexed](crate::storage::SessionStorageIndexed)
     #[error("Storage doesn't support indexing")]

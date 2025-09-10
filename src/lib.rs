@@ -140,7 +140,8 @@ fn login(mut session: Session<MySession>) {
 ## Session Indexing
 
 For use cases like multi-device login tracking or other security features, you can use a storage
-provider that supports indexing, and then group sessions by an identifier (such as a user ID) using the [`SessionIdentifier`] trait:
+provider that supports indexing, and then group sessions by an identifier (such as a user ID)
+using the [`SessionIdentifier`] trait:
 
 ```rust
 use rocket::routes;
@@ -156,8 +157,8 @@ struct UserSession {
 impl SessionIdentifier for UserSession {
     type Id = String;
 
-    fn identifier(&self) -> Option<&Self::Id> {
-        Some(&self.user_id) // Group sessions by user_id
+    fn identifier(&self) -> Option<Self::Id> {
+        Some(self.user_id.clone()) // Group sessions by user_id
     }
 }
 
@@ -202,10 +203,9 @@ This crate supports multiple storage backends with different capabilities:
 | [`storage::memory::MemoryStorage`] | Built-in | ❌ | Development, testing |
 | [`storage::memory::MemoryStorageIndexed`] | Built-in | ✅ | Development with indexing features |
 | [`storage::cookie::CookieStorage`] | `cookie` | ❌ | Client-side storage, stateless servers |
-| [`storage::redis::RedisFredStorage`] | `redis_fred` | ❌ | Production, distributed systems |
-| [`storage::redis::RedisFredStorageIndexed`] | `redis_fred` | ✅ | Production, distributed systems |
+| [`storage::redis::RedisFredStorage`] | `redis_fred` | ✅ | Production, distributed systems |
 | [`storage::sqlx::SqlxPostgresStorage`] | `sqlx_postgres` | ✅ | Production, existing database |
-
+| [`storage::sqlx::SqlxSqliteStorage`] | `sqlx_sqlite` | ✅ | Development and small-scale deployments |
 
 ## Custom Storage
 
@@ -232,7 +232,7 @@ where
         todo!()
     }
 
-    async fn delete(&self, id: &str, cookie_jar: &CookieJar) -> SessionResult<()> {
+    async fn delete(&self, id: &str, data: T) -> SessionResult<()> {
         // Delete session from your storage
         todo!()
     }
@@ -241,8 +241,8 @@ where
 
 ### Adding Indexing Support
 
-To support session indexing, also implement [`SessionStorageIndexed`](crate::storage::SessionStorageIndexed) and add the `as_indexed_storage` method
-to the [`SessionStorage`](crate::storage::SessionStorage) trait:
+To support session indexing, also implement [`SessionStorageIndexed`](crate::storage::SessionStorageIndexed),
+and adjust the [`SessionStorage`](crate::storage::SessionStorage) implementation as follows:
 
 
 ```rust,ignore
@@ -262,16 +262,17 @@ where
     // etc...
 }
 
-// Make sure to also add this to the `SessionStorage` trait to enable indexing support
+// Make sure to also add the following to the `SessionStorage` trait:
 #[async_trait]
 impl<T> SessionStorage<T> for MyCustomStorage
 where
-    T: Send + Sync + Clone + 'static,
+    T: SessionIdentifier + Send + Sync + Clone + 'static, // add the SessionIdentifier trait bound
 {
-    // ... other methods ...
+    // ... In the load() and delete() functions, you can access the identifier using data.identifier() ...
 
+    // Add this function (used internally to access the indexing functions)
     fn as_indexed_storage(&self) -> Option<&dyn SessionStorageIndexed<T>> {
-        Some(self) // Enable indexing support
+        Some(self)
     }
 }
 ```
@@ -294,6 +295,7 @@ These features can be enabled as shown
 | `cookie` | A cookie-based session store. Data is serialized using serde_json and then encrypted into the value of a cookie. |
 | `redis_fred`  | A session store for Redis (and Redis-compatible databases), using the [fred.rs](https://docs.rs/crate/fred) crate. |
 | `sqlx_postgres`  | A session store using PostgreSQL via the [sqlx](https://docs.rs/crate/sqlx) crate. |
+| `sqlx_sqlite`  | A session store using SQLite via the [sqlx](https://docs.rs/crate/sqlx) crate. |
 | `rocket_okapi`  | Enables support for the [rocket_okapi](https://docs.rs/crate/rocket_okapi) crate if needed. |
 */
 

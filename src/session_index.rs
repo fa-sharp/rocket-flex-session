@@ -1,6 +1,6 @@
 use crate::{error::SessionError, storage::SessionStorageIndexed, Session};
 
-/// Optional trait for session data types that can be grouped by an identifier.
+/// Trait for session data types that allows grouping sessions by an identifier.
 /// This enables features like retrieving all sessions for a user or invalidating
 /// all sessions when a user's password changes.
 ///
@@ -18,26 +18,22 @@ use crate::{error::SessionError, storage::SessionStorageIndexed, Session};
 /// }
 ///
 /// impl SessionIdentifier for MySession {
-///     const IDENTIFIER: &str = "user_id";
 ///     type Id = String;
 ///
-///     fn identifier(&self) -> Option<&Self::Id> {
-///         Some(&self.user_id)
+///     fn identifier(&self) -> Option<Self::Id> {
+///         Some(self.user_id.clone())
 ///     }
 /// }
 /// ```
 pub trait SessionIdentifier: Send + Sync + Clone {
-    /// The name of the identifier (default: `"user_id"`), that may be used as a field/key name by the storage backend.
-    const IDENTIFIER: &str = "user_id";
-
     /// The type of the identifier
-    type Id: Send + Sync + Clone;
+    type Id: Send + Sync;
 
     /// Extract the identifier from the session data. This identifier
     /// should be immutable for the lifetime of the session.
     /// Can return `None` if a session doesn't have an identifier and/or
     /// shouldn't be indexed.
-    fn identifier(&self) -> Option<&Self::Id>;
+    fn identifier(&self) -> Option<Self::Id>;
 }
 
 /// Session implementation block for indexing operations
@@ -121,7 +117,7 @@ where
 
     /// Get the current session's identifier, if there is one.
     fn get_identifier(&self) -> Option<T::Id> {
-        self.get_inner_lock().get_current_identifier().cloned()
+        self.get_inner_lock().get_current_identifier()
     }
 
     /// Try to cast the storage as an indexed storage

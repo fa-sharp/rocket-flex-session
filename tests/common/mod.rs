@@ -1,5 +1,5 @@
 use fred::prelude::{ClientLike, KeysInterface, ReconnectPolicy};
-use sqlx::{Connection, PgPool};
+use sqlx::{Connection, PgPool, SqlitePool};
 
 pub const POSTGRES_URL: &str = "postgres://postgres:postgres@localhost";
 
@@ -44,6 +44,29 @@ pub async fn teardown_postgres(pool: sqlx::Pool<sqlx::Postgres>, db_name: String
         .execute(&mut cxn)
         .await
         .expect("Should drop test database");
+}
+
+pub async fn setup_sqlite() -> SqlitePool {
+    let pool = sqlx::SqlitePool::connect("sqlite::memory:")
+        .await
+        .expect("failed to connect to in-memory SQLite");
+    sqlx::query(
+        r#"CREATE TABLE IF NOT EXISTS sessions (
+          id      TEXT NOT NULL PRIMARY KEY,
+          data    TEXT NOT NULL,
+          user_id TEXT,
+          expires TEXT NOT NULL
+      )"#,
+    )
+    .execute(&pool)
+    .await
+    .expect("Should create sessions table");
+
+    pool
+}
+
+pub async fn teardown_sqlite(pool: SqlitePool) {
+    pool.close().await;
 }
 
 pub async fn setup_redis_fred() -> (fred::prelude::Pool, String) {

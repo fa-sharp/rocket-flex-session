@@ -172,7 +172,7 @@ where
         Ok(()) // no-op (cookie session should already be saved by `save_cookie`)
     }
 
-    async fn delete(&self, _id: &str, _cookie_jar: &CookieJar) -> SessionResult<()> {
+    async fn delete(&self, _id: &str, _data: T) -> SessionResult<()> {
         Ok(()) // no-op (cookie session should already be deleted by `save_cookie`)
     }
 }
