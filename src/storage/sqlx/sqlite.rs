@@ -4,7 +4,7 @@ use sqlx::{sqlite::SqliteRow, Row, Sqlite, SqlitePool};
 
 use crate::{
     error::{SessionError, SessionResult},
-    storage::SessionStorage,
+    storage::{SessionStorage, SessionStorageIndexed},
 };
 
 use super::*;
@@ -74,7 +74,7 @@ where
         ttl: Option<u32>,
         _cookie_jar: &CookieJar,
     ) -> SessionResult<(T, u32)> {
-        let row: Option<SqliteRow> = self.base.load(id.into(), ttl).await?;
+        let row: Option<SqliteRow> = self.base.load(id, ttl).await?;
         let row = row.ok_or(SessionError::NotFound)?;
 
         let value = row.try_get(DATA_COLUMN)?;
@@ -89,12 +89,12 @@ where
         let value = data
             .into_sql()
             .map_err(|e| SessionError::Serialization(Box::new(e)))?;
-        self.base.save(id.into(), value, identifier, ttl).await?;
+        self.base.save(id, value, identifier, ttl).await?;
         Ok(())
     }
 
     async fn delete(&self, id: &str, _data: T) -> SessionResult<()> {
-        self.base.delete(id.into()).await?;
+        self.base.delete(id).await?;
         Ok(())
     }
 
@@ -104,5 +104,51 @@ where
 
     async fn shutdown(&self) -> SessionResult<()> {
         self.cleanup_task.shutdown().await
+    }
+}
+
+#[async_trait]
+impl<T> SessionStorageIndexed<T> for SqlxSqliteStorage
+where
+    T: SessionSqlx<Sqlite>,
+    <T as SessionIdentifier>::Id: for<'q> sqlx::Encode<'q, Sqlite> + sqlx::Type<Sqlite>,
+{
+    async fn get_session_ids_by_identifier(&self, id: &T::Id) -> SessionResult<Vec<String>> {
+        let rows = self.base.session_ids_belonging_to(id).await?;
+        let session_ids = rows
+            .into_iter()
+            .filter_map(|row| row.try_get(ID_COLUMN).ok())
+            .collect();
+
+        Ok(session_ids)
+    }
+
+    async fn get_sessions_by_identifier(&self, id: &T::Id) -> SessionResult<Vec<(String, T, u32)>> {
+        let rows = self.base.sessions_belonging_to(id).await?;
+        let parsed_rows = rows
+            .into_iter()
+            .filter_map(|row| {
+                let id = row.try_get(ID_COLUMN).ok()?;
+                let value = row.try_get(DATA_COLUMN).ok()?;
+                let data = T::from_sql(value).ok()?;
+                let expires = row.try_get(EXPIRES_COLUMN).ok()?;
+                Some((id, data, expires_to_ttl(&expires)))
+            })
+            .collect();
+
+        Ok(parsed_rows)
+    }
+
+    async fn invalidate_sessions_by_identifier(
+        &self,
+        id: &T::Id,
+        excluded_session_id: Option<&str>,
+    ) -> SessionResult<u64> {
+        let rows = self
+            .base
+            .invalidate_belonging_to(id, excluded_session_id)
+            .await?;
+
+        Ok(rows.rows_affected())
     }
 }

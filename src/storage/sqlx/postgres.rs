@@ -57,8 +57,6 @@ async fn create_storage() -> SqlxPostgresStorage {
 pub struct SqlxPostgresStorage {
     pool: PgPool,
     base: SqlxBase<Postgres>,
-    table_name: String,
-    index_column: String,
     cleanup_task: SqlxCleanupTask,
 }
 
@@ -79,11 +77,9 @@ impl SqlxPostgresStorage {
         cleanup_interval: Option<std::time::Duration>,
     ) -> Self {
         Self {
-            base: SqlxBase::new(pool.clone(), table_name.clone(), index_column.clone()),
             cleanup_task: SqlxCleanupTask::new(cleanup_interval, &table_name),
+            base: SqlxBase::new(pool.clone(), table_name, index_column),
             pool,
-            table_name,
-            index_column,
         }
     }
 
@@ -109,7 +105,7 @@ where
         ttl: Option<u32>,
         _cookie_jar: &CookieJar,
     ) -> SessionResult<(T, u32)> {
-        let row: Option<PgRow> = self.base.load(id.into(), ttl).await?;
+        let row: Option<PgRow> = self.base.load(id, ttl).await?;
         let row = row.ok_or(SessionError::NotFound)?;
 
         let value = row.try_get(DATA_COLUMN)?;
@@ -124,12 +120,12 @@ where
         let value = data
             .into_sql()
             .map_err(|e| SessionError::Serialization(Box::new(e)))?;
-        self.base.save(id.into(), value, identifier, ttl).await?;
+        self.base.save(id, value, identifier, ttl).await?;
         Ok(())
     }
 
     async fn delete(&self, id: &str, _data: T) -> SessionResult<()> {
-        self.base.delete(id.into()).await?;
+        self.base.delete(id).await?;
         Ok(())
     }
 
@@ -149,27 +145,17 @@ where
     <T as SessionIdentifier>::Id: for<'q> sqlx::Encode<'q, Postgres> + sqlx::Type<Postgres>,
 {
     async fn get_session_ids_by_identifier(&self, id: &T::Id) -> SessionResult<Vec<String>> {
-        let sql = format!(
-            "SELECT {ID_COLUMN} FROM \"{}\" \
-            WHERE {} = $1 AND {EXPIRES_COLUMN} > CURRENT_TIMESTAMP",
-            &self.table_name, self.index_column
-        );
-        let rows = sqlx::query(&sql).bind(id).fetch_all(&self.pool).await?;
-        let parsed_rows = rows
+        let rows = self.base.session_ids_belonging_to(id).await?;
+        let session_ids = rows
             .into_iter()
             .filter_map(|row| row.try_get(ID_COLUMN).ok())
             .collect();
 
-        Ok(parsed_rows)
+        Ok(session_ids)
     }
 
     async fn get_sessions_by_identifier(&self, id: &T::Id) -> SessionResult<Vec<(String, T, u32)>> {
-        let sql = format!(
-            "SELECT {ID_COLUMN}, {DATA_COLUMN}, {EXPIRES_COLUMN} FROM \"{}\" \
-               WHERE {} = $1 AND {EXPIRES_COLUMN} > CURRENT_TIMESTAMP",
-            self.table_name, self.index_column
-        );
-        let rows = sqlx::query(&sql).bind(id).fetch_all(&self.pool).await?;
+        let rows = self.base.sessions_belonging_to(id).await?;
         let parsed_rows = rows
             .into_iter()
             .filter_map(|row| {
@@ -189,19 +175,10 @@ where
         id: &T::Id,
         excluded_session_id: Option<&str>,
     ) -> SessionResult<u64> {
-        let mut sql = format!(
-            "DELETE FROM \"{}\" WHERE {} = $1",
-            &self.table_name, self.index_column
-        );
-        if excluded_session_id.is_some() {
-            sql.push_str(&format!(" AND {ID_COLUMN} != $2"));
-        }
-
-        let mut query = sqlx::query(&sql).bind(id);
-        if let Some(excluded_id) = excluded_session_id {
-            query = query.bind(excluded_id);
-        }
-        let rows = query.execute(&self.pool).await?;
+        let rows = self
+            .base
+            .invalidate_belonging_to(id, excluded_session_id)
+            .await?;
 
         Ok(rows.rows_affected())
     }
