@@ -42,7 +42,6 @@ rocket = { version = "~0.5.1", features = ["secrets"] }
 rocket_okapi = { version = "0.9", optional = true }
 sqlx = { version = "0.8", optional = true, default-features = false, features = [
     "runtime-tokio",
-    "any",
     "postgres",
     "time",
 ] }
