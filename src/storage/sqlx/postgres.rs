@@ -23,7 +23,7 @@ Session store using PostgreSQL via [sqlx](https://docs.rs/crate/sqlx).
 |------|---------|
 | id   | `text` PRIMARY KEY |
 | data | `text` NOT NULL (or `jsonb`)  |
-| user_id | sql type of `SessionIdentifier::Id` |
+| user_id | SQL type of `SessionIdentifier::Id` |
 | expires | `timestamptz` NOT NULL |
 
 The name of the session index column ("user_id") can be customized when building the storage.
@@ -89,7 +89,7 @@ impl SqlxPostgresStorage {
 
     fn ttl_from_row(&self, row: &PgRow) -> sqlx::Result<u32> {
         let expires: OffsetDateTime = row.try_get(EXPIRES_COLUMN)?;
-        Ok(expires_to_ttl(expires))
+        Ok(expires_to_ttl(&expires))
     }
 }
 
@@ -109,11 +109,8 @@ where
         ttl: Option<u32>,
         _cookie_jar: &CookieJar,
     ) -> SessionResult<(T, u32)> {
-        let row = self
-            .base
-            .load(id.into(), ttl)
-            .await?
-            .ok_or(SessionError::NotFound)?;
+        let row: Option<PgRow> = self.base.load(id.into(), ttl).await?;
+        let row = row.ok_or(SessionError::NotFound)?;
 
         let value = row.try_get(DATA_COLUMN)?;
         let data = T::from_sql(value).map_err(|e| SessionError::Parsing(Box::new(e)))?;
@@ -127,11 +124,13 @@ where
         let value = data
             .into_sql()
             .map_err(|e| SessionError::Serialization(Box::new(e)))?;
-        Ok(self.base.save(id.into(), value, identifier, ttl).await?)
+        self.base.save(id.into(), value, identifier, ttl).await?;
+        Ok(())
     }
 
     async fn delete(&self, id: &str, _data: T) -> SessionResult<()> {
-        Ok(self.base.delete(id.into()).await?)
+        self.base.delete(id.into()).await?;
+        Ok(())
     }
 
     async fn setup(&self) -> SessionResult<()> {

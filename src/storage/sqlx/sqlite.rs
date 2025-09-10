@@ -9,7 +9,25 @@ use crate::{
 
 use super::*;
 
-/** Session store using SQLite via [sqlx](https://docs.rs/crate/sqlx). */
+/** Session store using SQLite via [sqlx](https://docs.rs/crate/sqlx).
+
+# Requirements
+- You must pass in an initialized sqlx SQLite connection pool.
+- Your session data type must implement [`SessionSqlx`] to configure how to convert & store session data.
+- Your session data type must implement [`SessionIdentifier`]. The SessionIdentifier's
+[Id](`SessionIdentifier::Id`) type must be a type supported by sqlx.
+- Expects a table to already exist with the following columns:
+
+| Name | Type |
+|------|---------|
+| id   | TEXT PRIMARY KEY |
+| data | TEXT NOT NULL  |
+| user_id | TEXT |
+| expires | DATETIME |
+
+The name of the session index column ("user_id") can be customized when building the storage.
+
+ */
 pub struct SqlxSqliteStorage {
     pool: SqlitePool,
     base: SqlxBase<Sqlite>,
@@ -56,17 +74,14 @@ where
         ttl: Option<u32>,
         _cookie_jar: &CookieJar,
     ) -> SessionResult<(T, u32)> {
-        let row: SqliteRow = self
-            .base
-            .load(id.into(), ttl)
-            .await?
-            .ok_or(SessionError::NotFound)?;
+        let row: Option<SqliteRow> = self.base.load(id.into(), ttl).await?;
+        let row = row.ok_or(SessionError::NotFound)?;
 
         let value = row.try_get(DATA_COLUMN)?;
         let data = T::from_sql(value).map_err(|e| SessionError::Parsing(Box::new(e)))?;
         let expires = row.try_get(EXPIRES_COLUMN)?;
 
-        Ok((data, expires_to_ttl(expires)))
+        Ok((data, expires_to_ttl(&expires)))
     }
 
     async fn save(&self, id: &str, data: T, ttl: u32) -> SessionResult<()> {
@@ -74,11 +89,13 @@ where
         let value = data
             .into_sql()
             .map_err(|e| SessionError::Serialization(Box::new(e)))?;
-        Ok(self.base.save(id.into(), value, identifier, ttl).await?)
+        self.base.save(id.into(), value, identifier, ttl).await?;
+        Ok(())
     }
 
     async fn delete(&self, id: &str, _data: T) -> SessionResult<()> {
-        Ok(self.base.delete(id.into()).await?)
+        self.base.delete(id.into()).await?;
+        Ok(())
     }
 
     async fn setup(&self) -> SessionResult<()> {

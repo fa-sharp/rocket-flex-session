@@ -62,13 +62,13 @@ where
         &'a self,
         id: String,
         value: V,
-        index: I,
+        index: Option<I>,
         ttl: u32,
-    ) -> Result<(), sqlx::Error>
+    ) -> Result<DB::QueryResult, sqlx::Error>
     where
         String: for<'q> sqlx::Encode<'q, DB> + sqlx::Type<DB>,
         V: for<'q> sqlx::Encode<'q, DB> + sqlx::Type<DB>,
-        I: for<'q> sqlx::Encode<'q, DB> + sqlx::Type<DB>,
+        Option<I>: for<'q> sqlx::Encode<'q, DB> + sqlx::Type<DB>,
     {
         sqlx::query(&save_sql(&self.table_name, &self.index_column))
             .bind(id)
@@ -76,32 +76,30 @@ where
             .bind(value)
             .bind(OffsetDateTime::now_utc() + Duration::seconds(ttl.into()))
             .execute(&self.pool)
-            .await?;
-        Ok(())
+            .await
     }
 
-    pub async fn delete<'a>(&self, id: String) -> Result<(), sqlx::Error>
+    pub async fn delete<'a>(&self, id: String) -> Result<DB::QueryResult, sqlx::Error>
     where
         String: for<'q> sqlx::Encode<'q, DB> + sqlx::Type<DB>,
     {
         sqlx::query(&delete_sql(&self.table_name))
             .bind(id)
             .execute(&self.pool)
-            .await?;
-        Ok(())
+            .await
     }
 }
 
-/// Bind session ID
-pub(super) fn load_sql(table_name: &str) -> String {
+/// Load session data. Bind session ID
+fn load_sql(table_name: &str) -> String {
     format!(
         "SELECT {DATA_COLUMN}, {EXPIRES_COLUMN} FROM \"{table_name}\" \
         WHERE {ID_COLUMN} = $1 AND {EXPIRES_COLUMN} > CURRENT_TIMESTAMP"
     )
 }
 
-/// Bind expiration and session ID
-pub(super) fn load_and_update_ttl_sql(table_name: &str) -> String {
+/// Load session data and update TTL. Bind expiration and session ID
+fn load_and_update_ttl_sql(table_name: &str) -> String {
     format!(
         "UPDATE \"{table_name}\" SET {EXPIRES_COLUMN} = $1 \
         WHERE {ID_COLUMN} = $2 AND {EXPIRES_COLUMN} > CURRENT_TIMESTAMP \
@@ -109,8 +107,8 @@ pub(super) fn load_and_update_ttl_sql(table_name: &str) -> String {
     )
 }
 
-/// Bind the session ID, index, data, and expiration
-pub(super) fn save_sql(table_name: &str, index_column: &str) -> String {
+/// Save session data. Bind the session ID, index, data, and expiration
+fn save_sql(table_name: &str, index_column: &str) -> String {
     format!(
         "INSERT INTO \"{table_name}\" ({ID_COLUMN}, {index_column}, {DATA_COLUMN}, {EXPIRES_COLUMN}) \
         VALUES ($1, $2, $3, $4) \
@@ -120,13 +118,14 @@ pub(super) fn save_sql(table_name: &str, index_column: &str) -> String {
     )
 }
 
-/// Bind the session ID
-pub(super) fn delete_sql(table_name: &str) -> String {
+/// Delete session data. Bind the session ID
+fn delete_sql(table_name: &str) -> String {
     format!("DELETE FROM \"{table_name}\" WHERE {ID_COLUMN} = $1")
 }
 
-pub(super) fn expires_to_ttl(expires: OffsetDateTime) -> u32 {
-    (expires - OffsetDateTime::now_utc())
+/// Convert expiration time to TTL
+pub(super) fn expires_to_ttl(expires: &OffsetDateTime) -> u32 {
+    (*expires - OffsetDateTime::now_utc())
         .whole_seconds()
         .try_into()
         .unwrap_or(0)
@@ -141,7 +140,7 @@ pub(super) struct SqlxCleanupTask {
 }
 
 impl SqlxCleanupTask {
-    pub(super) fn new(cleanup_interval: Option<std::time::Duration>, table_name: &str) -> Self {
+    pub fn new(cleanup_interval: Option<std::time::Duration>, table_name: &str) -> Self {
         Self {
             interval: cleanup_interval,
             shutdown_tx: Mutex::default(),
@@ -149,7 +148,7 @@ impl SqlxCleanupTask {
         }
     }
 
-    pub(super) async fn setup<DB>(&self, pool: &sqlx::Pool<DB>) -> SessionResult<()>
+    pub async fn setup<DB>(&self, pool: &sqlx::Pool<DB>) -> SessionResult<()>
     where
         DB: sqlx::Database,
         for<'q> <DB as sqlx::Database>::Arguments<'q>: sqlx::IntoArguments<'q, DB>,
@@ -192,7 +191,7 @@ impl SqlxCleanupTask {
         Ok(())
     }
 
-    pub(super) async fn shutdown(&self) -> SessionResult<()> {
+    pub async fn shutdown(&self) -> SessionResult<()> {
         if let Some(tx) = self.shutdown_tx.lock().await.take() {
             tx.send(0).map_err(|_| {
                 SessionError::SetupTeardown("Failed to send shutdown signal".to_string())
