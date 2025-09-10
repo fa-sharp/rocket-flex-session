@@ -140,7 +140,8 @@ fn login(mut session: Session<MySession>) {
 ## Session Indexing
 
 For use cases like multi-device login tracking or other security features, you can use a storage
-provider that supports indexing, and then group sessions by an identifier (such as a user ID) using the [`SessionIdentifier`] trait:
+provider that supports indexing, and then group sessions by an identifier (such as a user ID)
+using the [`SessionIdentifier`] trait:
 
 ```rust
 use rocket::routes;
@@ -156,8 +157,8 @@ struct UserSession {
 impl SessionIdentifier for UserSession {
     type Id = String;
 
-    fn identifier(&self) -> Option<&Self::Id> {
-        Some(&self.user_id) // Group sessions by user_id
+    fn identifier(&self) -> Option<Self::Id> {
+        Some(self.user_id.clone()) // Group sessions by user_id
     }
 }
 

@@ -9,11 +9,11 @@ use rocket::{
         time::interval,
     },
 };
-use sqlx::{postgres::PgRow, PgPool, Row};
+use sqlx::{postgres::PgRow, PgPool, Postgres, Row};
 
 use crate::{
     error::{SessionError, SessionResult},
-    storage::{SessionStorage, SessionStorageIndexed},
+    storage::{sqlx::SessionSqlx, SessionStorage, SessionStorageIndexed},
     SessionIdentifier,
 };
 
@@ -22,21 +22,31 @@ const DATA_COLUMN: &str = "data";
 const EXPIRES_COLUMN: &str = "expires";
 
 /**
-Session store using PostgreSQL via [sqlx](https://docs.rs/crate/sqlx) that stores session data as a string, and supports session indexing.
+Session store using PostgreSQL via [sqlx](https://docs.rs/crate/sqlx).
 
 # Requirements
-You'll need to implement `TryInto<String>` and `TryFrom<String>` for your session data type. You'll also need to implement [`SessionIdentifier`],
-and its [`Id`](crate::SessionIdentifier::Id) type must be a [type supported by sqlx](https://docs.rs/sqlx/latest/sqlx/postgres/types/index.html).
-Expects a table to already exist with the following columns:
+- You must pass in an initialized sqlx Postgres connection pool.
+- Your session data type must implement [`SessionSqlx`] to configure how to convert & store session data.
+- Your session data type must implement [`SessionIdentifier`]. The SessionIdentifier's
+[Id](`SessionIdentifier::Id`) type must be a type supported by sqlx.
+- Expects a table to already exist with the following columns:
 
 | Name | Type |
 |------|---------|
 | id   | `text` PRIMARY KEY |
-| data | `text` NOT NULL (or `jsonb` if using JSON) |
-| `<identifier>` | `<type>` (this identifier and type should match your [`SessionIdentifier`] impl) |
+| data | `text` NOT NULL (or `jsonb`)  |
+| user_id | sql type of `SessionIdentifier::Id` |
 | expires | `timestamptz` NOT NULL |
 
-# Creating the storage
+The name of the session index column ("user_id") can be customized when building the storage.
+
+# Session storage
+Sessions are stored in the table specified by `table_name`, along with the optional identifier
+(typically a user ID) and the session's expiration time. You can enable automatic deletion of
+expired sessions by setting the `cleanup_interval` option. This storage provider does not
+create any table or index for you, so you'll need to do that in your existing migration flow.
+
+# Example
 Initialize the sqlx pool, then use the builder pattern to create a new instance of `SqlxPostgresStorage`:
 ```
 use rocket_flex_session::storage::sqlx::SqlxPostgresStorage;
@@ -48,6 +58,8 @@ async fn create_storage() -> SqlxPostgresStorage {
     SqlxPostgresStorage::builder()
         .pool(pool.clone())
         .table_name("sessions")
+        // name of the column used to group sessions
+        .index_column("user_id")
         // optional auto-deletion of expired sessions
         .cleanup_interval(Duration::from_secs(600))
         .build()
@@ -61,6 +73,9 @@ pub struct SqlxPostgresStorage {
     /// The name of the table to use for storing sessions.
     #[builder(into)]
     table_name: String,
+    /// The name of the column used to index/group sessions (default: `"user_id"`)
+    #[builder(into, default = "user_id")]
+    index_column: String,
     /// Interval to check for and delete expired sessions. If not set,
     /// expired sessions won't be cleaned up automatically.
     cleanup_interval: Option<std::time::Duration>,
@@ -69,14 +84,6 @@ pub struct SqlxPostgresStorage {
 }
 
 impl SqlxPostgresStorage {
-    fn id_from_row(&self, row: &PgRow) -> sqlx::Result<String> {
-        row.try_get(ID_COLUMN)
-    }
-
-    fn raw_data_from_row(&self, row: &PgRow) -> sqlx::Result<String> {
-        row.try_get(DATA_COLUMN)
-    }
-
     fn ttl_from_row(&self, row: &PgRow) -> sqlx::Result<u32> {
         let expires: OffsetDateTime = row.try_get(EXPIRES_COLUMN)?;
         let ttl = (expires - OffsetDateTime::now_utc())
@@ -90,11 +97,8 @@ impl SqlxPostgresStorage {
 #[async_trait]
 impl<T> SessionStorage<T> for SqlxPostgresStorage
 where
-    T: SessionIdentifier + TryFrom<String> + TryInto<String> + Clone + Send + Sync + 'static,
-    <T as SessionIdentifier>::Id:
-        for<'q> sqlx::Encode<'q, sqlx::Postgres> + sqlx::Type<sqlx::Postgres>,
-    <T as TryInto<String>>::Error: std::error::Error + Send + Sync + 'static,
-    <T as TryFrom<String>>::Error: std::error::Error + Send + Sync + 'static,
+    T: SessionSqlx<Postgres>,
+    <T as SessionIdentifier>::Id: for<'q> sqlx::Encode<'q, Postgres> + sqlx::Type<Postgres>,
 {
     fn as_indexed_storage(&self) -> Option<&dyn SessionStorageIndexed<T>> {
         Some(self)
@@ -133,15 +137,15 @@ where
             }
         };
 
-        let (raw_str, ttl) = match row {
+        let (value, ttl) = match row {
             Some(row) => {
-                let data = self.raw_data_from_row(&row)?;
+                let data = row.try_get(DATA_COLUMN)?;
                 let ttl = self.ttl_from_row(&row)?;
                 (data, ttl)
             }
             None => return Err(SessionError::NotFound),
         };
-        let data = T::try_from(raw_str).map_err(|e| SessionError::Serialization(Box::new(e)))?;
+        let data = T::from_sql(value).map_err(|e| SessionError::Parsing(Box::new(e)))?;
         Ok((data, ttl))
     }
 
@@ -152,17 +156,16 @@ where
             ON CONFLICT ({ID_COLUMN}) DO UPDATE SET \
                 {DATA_COLUMN} = EXCLUDED.{DATA_COLUMN}, \
                 {EXPIRES_COLUMN} = EXCLUDED.{EXPIRES_COLUMN}",
-            self.table_name,
-            T::IDENTIFIER
+            self.table_name, self.index_column
         );
-        let identifier = data.identifier().cloned();
-        let data_str: String = data
-            .try_into()
-            .map_err(|e| SessionError::Serialization(Box::new(e)))?;
+        let identifier = data.identifier();
         sqlx::query(&sql)
             .bind(id)
             .bind(identifier)
-            .bind(data_str)
+            .bind(
+                data.into_sql()
+                    .map_err(|e| SessionError::Serialization(Box::new(e)))?,
+            )
             .bind(OffsetDateTime::now_utc() + Duration::seconds(ttl.into()))
             .execute(&self.pool)
             .await?;
@@ -171,7 +174,7 @@ where
     }
 
     async fn delete(&self, id: &str, _data: T) -> SessionResult<()> {
-        let sql = format!("DELETE FROM {} WHERE {ID_COLUMN} = $1", &self.table_name);
+        let sql = format!("DELETE FROM {} WHERE {ID_COLUMN} = $1", self.table_name);
         sqlx::query(&sql).bind(id).execute(&self.pool).await?;
 
         Ok(())
@@ -229,23 +232,19 @@ async fn cleanup_expired_sessions(table_name: &str, pool: &PgPool) -> Result<u64
 #[async_trait]
 impl<T> SessionStorageIndexed<T> for SqlxPostgresStorage
 where
-    T: SessionIdentifier + TryFrom<String> + TryInto<String> + Clone + Send + Sync + 'static,
-    <T as SessionIdentifier>::Id:
-        for<'q> sqlx::Encode<'q, sqlx::Postgres> + sqlx::Type<sqlx::Postgres>,
-    <T as TryInto<String>>::Error: std::error::Error + Send + Sync + 'static,
-    <T as TryFrom<String>>::Error: std::error::Error + Send + Sync + 'static,
+    T: SessionSqlx<Postgres>,
+    <T as SessionIdentifier>::Id: for<'q> sqlx::Encode<'q, Postgres> + sqlx::Type<Postgres>,
 {
     async fn get_session_ids_by_identifier(&self, id: &T::Id) -> SessionResult<Vec<String>> {
         let sql = format!(
             "SELECT {ID_COLUMN} FROM \"{}\" \
             WHERE {} = $1 AND {EXPIRES_COLUMN} > CURRENT_TIMESTAMP",
-            &self.table_name,
-            T::IDENTIFIER
+            &self.table_name, self.index_column
         );
         let rows = sqlx::query(&sql).bind(id).fetch_all(&self.pool).await?;
         let parsed_rows = rows
             .into_iter()
-            .filter_map(|row| self.id_from_row(&row).ok())
+            .filter_map(|row| row.try_get(ID_COLUMN).ok())
             .collect();
 
         Ok(parsed_rows)
@@ -255,16 +254,15 @@ where
         let sql = format!(
             "SELECT {ID_COLUMN}, {DATA_COLUMN}, {EXPIRES_COLUMN} FROM \"{}\" \
                WHERE {} = $1 AND {EXPIRES_COLUMN} > CURRENT_TIMESTAMP",
-            &self.table_name,
-            T::IDENTIFIER
+            self.table_name, self.index_column
         );
         let rows = sqlx::query(&sql).bind(id).fetch_all(&self.pool).await?;
         let parsed_rows = rows
             .into_iter()
             .filter_map(|row| {
-                let id = self.id_from_row(&row).ok()?;
-                let raw_data = self.raw_data_from_row(&row).ok()?;
-                let data = T::try_from(raw_data).ok()?;
+                let id = row.try_get(ID_COLUMN).ok()?;
+                let value = row.try_get(DATA_COLUMN).ok()?;
+                let data = T::from_sql(value).ok()?;
                 let ttl = self.ttl_from_row(&row).ok()?;
                 Some((id, data, ttl))
             })
@@ -280,8 +278,7 @@ where
     ) -> SessionResult<u64> {
         let mut sql = format!(
             "DELETE FROM \"{}\" WHERE {} = $1",
-            &self.table_name,
-            T::IDENTIFIER
+            &self.table_name, self.index_column
         );
         if excluded_session_id.is_some() {
             sql.push_str(&format!(" AND {ID_COLUMN} != $2"));

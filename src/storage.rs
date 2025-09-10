@@ -24,11 +24,11 @@ pub use interface::*;
 
 pub mod memory;
 
-#[cfg(feature = "cookie")]
+#[cfg(any(feature = "cookie"))]
 pub mod cookie;
 
-#[cfg(feature = "redis_fred")]
+#[cfg(any(feature = "redis_fred"))]
 pub mod redis;
 
-#[cfg(feature = "sqlx_postgres")]
+#[cfg(any(feature = "sqlx_postgres"))]
 pub mod sqlx;

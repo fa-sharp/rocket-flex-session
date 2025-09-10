@@ -18,11 +18,10 @@ struct UserSession {
 }
 
 impl SessionIdentifier for UserSession {
-    const IDENTIFIER: &str = "user_id";
     type Id = String;
 
-    fn identifier(&self) -> Option<&Self::Id> {
-        Some(&self.user_id)
+    fn identifier(&self) -> Option<Self::Id> {
+        Some(self.user_id.clone())
     }
 }
 
@@ -34,11 +33,10 @@ struct AdminSession {
 }
 
 impl SessionIdentifier for AdminSession {
-    const IDENTIFIER: &str = "admin_id";
     type Id = String;
 
-    fn identifier(&self) -> Option<&Self::Id> {
-        Some(&self.admin_id)
+    fn identifier(&self) -> Option<Self::Id> {
+        Some(self.admin_id.clone())
     }
 }
 

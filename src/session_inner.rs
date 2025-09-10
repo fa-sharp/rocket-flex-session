@@ -189,7 +189,7 @@ impl<T> SessionInner<T>
 where
     T: SessionIdentifier,
 {
-    pub(crate) fn get_current_identifier(&self) -> Option<&T::Id> {
+    pub(crate) fn get_current_identifier(&self) -> Option<T::Id> {
         self.get_current_data().and_then(|data| data.identifier())
     }
 }

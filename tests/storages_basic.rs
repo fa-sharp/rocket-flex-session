@@ -13,8 +13,8 @@ use rocket_flex_session::{
     error::SessionError,
     storage::{
         cookie::CookieStorage,
-        redis::{RedisFredStorage, RedisFredStorageIndexed, RedisType},
-        sqlx::SqlxPostgresStorage,
+        redis::{RedisFredStorage, SessionRedis, SessionRedisType, SessionRedisValue},
+        sqlx::{SessionSqlx, SqlxPostgresStorage},
     },
     RocketFlexSession, Session, SessionIdentifier,
 };
@@ -29,34 +29,44 @@ use crate::common::{
 struct SessionData {
     user_id: String,
 }
-impl TryFrom<String> for SessionData {
+
+impl SessionIdentifier for SessionData {
+    type Id = String;
+
+    fn identifier(&self) -> Option<Self::Id> {
+        Some(self.user_id.clone())
+    }
+}
+
+impl SessionSqlx<sqlx::Postgres> for SessionData {
+    type Data = String;
     type Error = SessionError;
-    fn try_from(value: String) -> Result<Self, Self::Error> {
+
+    fn into_sql(self) -> Result<Self::Data, Self::Error> {
+        Ok(self.user_id)
+    }
+
+    fn from_sql(value: Self::Data) -> Result<Self, Self::Error> {
         Ok(Self { user_id: value })
     }
 }
-impl From<SessionData> for String {
-    fn from(value: SessionData) -> Self {
-        value.user_id
+
+impl SessionRedis for SessionData {
+    const REDIS_TYPE: SessionRedisType = SessionRedisType::Bytes;
+    type Error = SessionError;
+
+    fn into_redis(self) -> Result<SessionRedisValue, Self::Error> {
+        Ok(SessionRedisValue::Bytes(self.user_id.into_bytes()))
     }
-}
-impl fred::types::FromValue for SessionData {
-    fn from_value(value: fred::prelude::Value) -> Result<Self, fred::prelude::Error> {
-        Ok(Self {
-            user_id: value.convert()?,
-        })
-    }
-}
-impl From<SessionData> for fred::types::Value {
-    fn from(value: SessionData) -> Self {
-        Self::String(value.user_id.into())
-    }
-}
-impl SessionIdentifier for SessionData {
-    const IDENTIFIER: &str = "user_id";
-    type Id = String;
-    fn identifier(&self) -> Option<&Self::Id> {
-        Some(&self.user_id)
+
+    fn from_redis(value: SessionRedisValue) -> Result<Self, Self::Error> {
+        match value {
+            SessionRedisValue::Bytes(bytes) => Ok(Self {
+                user_id: String::from_utf8(bytes)
+                    .map_err(|e| SessionError::Parsing(Box::new(e)))?,
+            }),
+            _ => Err(SessionError::InvalidData),
+        }
     }
 }
 
@@ -104,7 +114,6 @@ async fn create_rocket(
             let (pool, prefix) = setup_redis_fred().await;
             let storage = RedisFredStorage::builder()
                 .pool(pool.clone())
-                .redis_type(RedisType::String)
                 .prefix(&prefix)
                 .build();
             let fairing = RocketFlexSession::<SessionData>::builder()
@@ -115,9 +124,8 @@ async fn create_rocket(
         }
         "redis_indexed" => {
             let (pool, prefix) = setup_redis_fred().await;
-            let storage = RedisFredStorageIndexed::builder()
+            let storage = RedisFredStorage::builder()
                 .pool(pool.clone())
-                .redis_type(RedisType::String)
                 .prefix(&prefix)
                 .build();
             let fairing = RocketFlexSession::<SessionData>::builder()

@@ -121,8 +121,8 @@ where
 ///
 /// impl SessionIdentifier for UserSession {
 ///     type Id = String;
-///     fn identifier(&self) -> Option<&Self::Id> {
-///         Some(&self.user_id)
+///     fn identifier(&self) -> Option<Self::Id> {
+///         Some(self.user_id.clone())
 ///     }
 /// }
 ///

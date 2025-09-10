@@ -1,13 +1,14 @@
 mod common;
 
-use std::{collections::HashMap, future::Future, pin::Pin};
+use std::{future::Future, pin::Pin};
 
 use rocket::futures::FutureExt;
 use rocket_flex_session::{
+    error::SessionError,
     storage::{
         memory::MemoryStorageIndexed,
-        redis::{RedisFredStorageIndexed, RedisType},
-        sqlx::SqlxPostgresStorage,
+        redis::{RedisFredStorage, SessionRedis, SessionRedisType, SessionRedisValue},
+        sqlx::{SessionSqlx, SqlxPostgresStorage},
         SessionStorageIndexed,
     },
     SessionIdentifier,
@@ -23,26 +24,25 @@ struct TestSession {
     user_id: String,
     data: String,
 }
+
 impl SessionIdentifier for TestSession {
     type Id = String;
 
-    fn identifier(&self) -> Option<&Self::Id> {
-        Some(&self.user_id)
+    fn identifier(&self) -> Option<Self::Id> {
+        Some(self.user_id.clone())
     }
 }
 
-// Impls for Sqlx
-impl TryFrom<TestSession> for String {
+impl SessionSqlx<sqlx::Postgres> for TestSession {
     type Error = std::io::Error;
 
-    fn try_from(value: TestSession) -> Result<Self, Self::Error> {
-        Ok(format!("{}:{}", value.user_id, value.data))
+    type Data = String;
+
+    fn into_sql(self) -> Result<Self::Data, Self::Error> {
+        Ok(format!("{}:{}", self.user_id, self.data))
     }
-}
-impl TryFrom<String> for TestSession {
-    type Error = std::io::Error;
 
-    fn try_from(value: String) -> Result<Self, Self::Error> {
+    fn from_sql(value: Self::Data) -> Result<Self, Self::Error> {
         let (user_id, data) = value.split_once(':').ok_or(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
             "Invalid session format",
@@ -54,24 +54,35 @@ impl TryFrom<String> for TestSession {
     }
 }
 
-// Impls for fred.rs Redis
-const USER_ID_KEY: fred::prelude::Key = fred::types::Key::from_static_str("user_id");
-const DATA_KEY: fred::prelude::Key = fred::types::Key::from_static_str("data");
-impl fred::types::FromValue for TestSession {
-    fn from_value(value: fred::prelude::Value) -> Result<Self, fred::prelude::Error> {
-        let mut map = value.into_map()?;
-        Ok(Self {
-            user_id: map.remove(&USER_ID_KEY).unwrap().convert()?,
-            data: map.remove(&DATA_KEY).unwrap().convert()?,
-        })
+impl SessionRedis for TestSession {
+    const REDIS_TYPE: SessionRedisType = SessionRedisType::Map;
+
+    type Error = SessionError;
+
+    fn into_redis(self) -> Result<SessionRedisValue, Self::Error> {
+        let map = vec![
+            ("user_id".to_owned(), self.user_id),
+            ("data".to_owned(), self.data),
+        ];
+        Ok(SessionRedisValue::Map(map))
     }
-}
-impl From<TestSession> for fred::types::Value {
-    fn from(value: TestSession) -> Self {
-        let hash: HashMap<fred::prelude::Key, String> =
-            HashMap::from([(USER_ID_KEY, value.user_id), (DATA_KEY, value.data)]);
-        let fred_map = fred::types::Map::try_from(hash).unwrap();
-        fred::types::Value::Map(fred_map)
+
+    fn from_redis(value: SessionRedisValue) -> Result<Self, Self::Error> {
+        let SessionRedisValue::Map(map) = value else {
+            return Err(SessionError::InvalidData);
+        };
+        let (mut user_id, mut data) = (None, None);
+        for (key, value) in map {
+            match key.as_str() {
+                "user_id" => user_id = Some(value),
+                "data" => data = Some(value),
+                _ => {}
+            }
+        }
+        match (user_id, data) {
+            (Some(user_id), Some(data)) => Ok(Self { user_id, data }),
+            _ => Err(SessionError::InvalidData),
+        }
     }
 }
 
@@ -88,10 +99,9 @@ async fn create_storage(
         }
         "redis" => {
             let (pool, prefix) = setup_redis_fred().await;
-            let storage = RedisFredStorageIndexed::builder()
+            let storage = RedisFredStorage::builder()
                 .pool(pool.clone())
                 .prefix(&prefix)
-                .redis_type(RedisType::Hash)
                 .build();
             let cleanup_task = teardown_redis_fred(pool, prefix).boxed();
             (Box::new(storage), Some(cleanup_task))
