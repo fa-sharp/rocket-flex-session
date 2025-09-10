@@ -241,8 +241,8 @@ where
 
 ### Adding Indexing Support
 
-To support session indexing, also implement [`SessionStorageIndexed`](crate::storage::SessionStorageIndexed) and add the `as_indexed_storage` method
-to the [`SessionStorage`](crate::storage::SessionStorage) trait:
+To support session indexing, also implement [`SessionStorageIndexed`](crate::storage::SessionStorageIndexed),
+and adjust the [`SessionStorage`](crate::storage::SessionStorage) implementation as follows:
 
 
 ```rust,ignore
@@ -262,16 +262,17 @@ where
     // etc...
 }
 
-// Make sure to also add this to the `SessionStorage` trait to enable indexing support
+// Make sure to also add the following to the `SessionStorage` trait:
 #[async_trait]
 impl<T> SessionStorage<T> for MyCustomStorage
 where
-    T: Send + Sync + Clone + 'static,
+    T: SessionIdentifier + Send + Sync + Clone + 'static, // add the SessionIdentifier trait bound
 {
-    // ... other methods ...
+    // ... In the load() and delete() functions, you can access the identifier using data.identifier() ...
 
+    // Add this function (used internally to access the indexing functions)
     fn as_indexed_storage(&self) -> Option<&dyn SessionStorageIndexed<T>> {
-        Some(self) // Enable indexing support
+        Some(self)
     }
 }
 ```
