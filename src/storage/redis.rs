@@ -69,7 +69,7 @@ impl SessionIdentifier for MySession {
 }
 
 impl SessionRedis for MySession {
-    const REDIS_TYPE: RedisFormat = RedisFormat::Map;
+    const REDIS_FORMAT: RedisFormat = RedisFormat::Map;
 
     type Error = SessionError; // or a custom error type
 
@@ -84,7 +84,7 @@ impl SessionRedis for MySession {
         let mut user_id = None;
         let mut data = None;
 
-        // The `value` should always be the type you specify in REDIS_TYPE,
+        // The `value` should always be the type you specify in REDIS_FORMAT,
         // so you can safely unwrap/expect it.
         let map = value.into_map().expect("should be a map");
         for (key, value) in map {
@@ -107,8 +107,8 @@ where
     Self: SessionIdentifier + 'static,
     <Self as SessionIdentifier>::Id: AsRef<str>,
 {
-    /// The Redis data type used to store the session.
-    const REDIS_TYPE: RedisFormat;
+    /// The format used to store the session in Redis.
+    const REDIS_FORMAT: RedisFormat;
 
     /// The error that can occur when converting to/from the Redis value.
     type Error: std::error::Error + Send + Sync;

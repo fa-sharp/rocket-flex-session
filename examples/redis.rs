@@ -27,7 +27,7 @@ impl SessionIdentifier for BasicSession {
 // can customize the conversion however you like)
 impl SessionRedis for BasicSession {
     // Storing session as a string in Redis
-    const REDIS_TYPE: RedisFormat = RedisFormat::String;
+    const REDIS_FORMAT: RedisFormat = RedisFormat::String;
 
     // Conversion error type
     type Error = serde_json::Error;
@@ -40,7 +40,7 @@ impl SessionRedis for BasicSession {
 
     // Convert from Redis value
     fn from_redis(value: RedisValue) -> Result<Self, Self::Error> {
-        // Can safely assume the value is a string according to the REDIS_TYPE above
+        // Can safely assume the value is a string according to the REDIS_FORMAT above
         let value = value.into_string().expect("Should be a string type");
         serde_json::from_str(&value)
     }

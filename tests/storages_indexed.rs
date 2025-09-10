@@ -7,7 +7,7 @@ use rocket_flex_session::{
     error::SessionError,
     storage::{
         memory::MemoryStorageIndexed,
-        redis::{RedisFormat, RedisFredStorage, SessionRedis, RedisValue},
+        redis::{RedisFormat, RedisFredStorage, RedisValue, SessionRedis},
         sqlx::{SessionSqlx, SqlxPostgresStorage, SqlxSqliteStorage},
         SessionStorageIndexed,
     },
@@ -72,7 +72,7 @@ impl SessionSqlx<sqlx::Sqlite> for TestSession {
 }
 
 impl SessionRedis for TestSession {
-    const REDIS_TYPE: RedisFormat = RedisFormat::Map;
+    const REDIS_FORMAT: RedisFormat = RedisFormat::Map;
 
     type Error = SessionError;
 

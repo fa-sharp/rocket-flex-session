@@ -62,8 +62,8 @@ impl RedisFredStorage {
         Ok((session_ids, index_key))
     }
 
-    fn to_typed_value(&self, redis_type: RedisFormat, value: Value) -> SessionResult<RedisValue> {
-        match redis_type {
+    fn to_typed_value(&self, redis_format: RedisFormat, value: Value) -> SessionResult<RedisValue> {
+        match redis_format {
             RedisFormat::String => value.into_string().map(RedisValue::String),
             RedisFormat::Bytes => value.into_owned_bytes().map(RedisValue::Bytes),
             RedisFormat::Map => value.convert().ok().map(RedisValue::Map),
@@ -98,7 +98,7 @@ where
     ) -> SessionResult<(T, u32)> {
         let key = self.session_key(id);
         let pipeline = self.pool.next().pipeline();
-        let _: () = match T::REDIS_TYPE {
+        let _: () = match T::REDIS_FORMAT {
             RedisFormat::String | RedisFormat::Bytes => pipeline.get(&key).await?,
             RedisFormat::Map => pipeline.hgetall(&key).await?,
         };
@@ -115,7 +115,7 @@ where
         };
 
         let value = value.ok_or(SessionError::NotFound)?;
-        let typed_value = self.to_typed_value(T::REDIS_TYPE, value)?;
+        let typed_value = self.to_typed_value(T::REDIS_FORMAT, value)?;
         let data = T::from_redis(typed_value).map_err(|e| SessionError::Parsing(Box::new(e)))?;
 
         Ok((data, ttl.unwrap_or(orig_ttl.try_into().unwrap_or(0))))
@@ -205,7 +205,7 @@ where
         let session_value_pipeline = self.pool.next().pipeline();
         for session_id in &session_ids {
             let session_key = self.session_key(&session_id);
-            let _: () = match T::REDIS_TYPE {
+            let _: () = match T::REDIS_FORMAT {
                 RedisFormat::String | RedisFormat::Bytes => {
                     session_value_pipeline.get(&session_key).await?
                 }
@@ -220,7 +220,7 @@ where
             .zip(raw_values_and_ttls.chunks_exact_mut(2))
             .map(|(id, raw)| {
                 let data_and_ttl = raw[0].take().and_then(|val| {
-                    let typed_value = self.to_typed_value(T::REDIS_TYPE, val).ok()?;
+                    let typed_value = self.to_typed_value(T::REDIS_FORMAT, val).ok()?;
                     let data = T::from_redis(typed_value).ok()?;
                     let ttl = raw[1].as_ref().and_then(Value::as_i64)?;
                     Some((data, ttl))

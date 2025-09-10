@@ -13,7 +13,7 @@ use rocket_flex_session::{
     error::SessionError,
     storage::{
         cookie::CookieStorage,
-        redis::{RedisFormat, RedisFredStorage, SessionRedis, RedisValue},
+        redis::{RedisFormat, RedisFredStorage, RedisValue, SessionRedis},
         sqlx::{SessionSqlx, SqlxPostgresStorage, SqlxSqliteStorage},
     },
     RocketFlexSession, Session, SessionIdentifier,
@@ -62,7 +62,7 @@ impl SessionSqlx<sqlx::Sqlite> for SessionData {
 }
 
 impl SessionRedis for SessionData {
-    const REDIS_TYPE: RedisFormat = RedisFormat::Bytes;
+    const REDIS_FORMAT: RedisFormat = RedisFormat::Bytes;
     type Error = SessionError;
 
     fn into_redis(self) -> Result<RedisValue, Self::Error> {
