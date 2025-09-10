@@ -122,18 +122,6 @@ async fn create_rocket(
             let cleanup_task = teardown_redis_fred(pool, prefix).boxed();
             (fairing, Some(cleanup_task))
         }
-        "redis_indexed" => {
-            let (pool, prefix) = setup_redis_fred().await;
-            let storage = RedisFredStorage::builder()
-                .pool(pool.clone())
-                .prefix(&prefix)
-                .build();
-            let fairing = RocketFlexSession::<SessionData>::builder()
-                .storage(storage)
-                .build();
-            let cleanup_task = teardown_redis_fred(pool, prefix).boxed();
-            (fairing, Some(cleanup_task))
-        }
         "sqlx" => {
             let (pool, db_name) = setup_postgres(POSTGRES_URL).await;
             let storage = SqlxPostgresStorage::builder()
@@ -159,7 +147,6 @@ async fn create_rocket(
 
 #[test_case("cookie"; "Cookie")]
 #[test_case("redis"; "Redis Fred")]
-#[test_case("redis_indexed"; "Redis Fred Indexed")]
 #[test_case("sqlx"; "Sqlx Postgres")]
 #[rocket::async_test]
 async fn test_storages(storage_case: &str) {

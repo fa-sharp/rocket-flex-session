@@ -102,6 +102,7 @@ async fn create_storage(
             let storage = RedisFredStorage::builder()
                 .pool(pool.clone())
                 .prefix(&prefix)
+                .index_prefix(format!("{prefix}user:"))
                 .build();
             let cleanup_task = teardown_redis_fred(pool, prefix).boxed();
             (Box::new(storage), Some(cleanup_task))
