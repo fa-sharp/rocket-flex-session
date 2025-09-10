@@ -1,4 +1,7 @@
 # Rocket Flex Session
+[![CI](https://github.com/fa-sharp/rocket-flex-session/actions/workflows/lib.yml/badge.svg)](https://github.com/fa-sharp/rocket-flex-session/actions/workflows/lib.yml)
+[![Release](https://github.com/fa-sharp/rocket-flex-session/actions/workflows/release.yml/badge.svg)](https://github.com/fa-sharp/rocket-flex-session/actions/workflows/release.yml)
+[![Crates.io Version](https://img.shields.io/crates/v/rocket_flex_session)](https://crates.io/crates/rocket_flex_session)
 
 Simple, extensible session library for Rocket applications.
 
@@ -47,8 +50,8 @@ async fn login(mut session: Session<MySession>) {
 - **Memory** (default) - In-memory storage, for local development
 - **Cookie** - Client-side encrypted cookies, serialized using [serde](https://serde.rs/) (`cookie` feature)
 - **Redis** - Redis-backed sessions via the [fred](https://docs.rs/fred) crate (`redis_fred` feature)
-- **PostgreSQL** - Postgres-backed sessions via sqlx (`sqlx_postgres` feature)
-- **Custom** - Implement the `SessionStorage` trait
+- **SQL Database** - Postgres and SQLite-backed sessions via sqlx (`sqlx_postgres` and `sqlx_sqlite` features)
+- **Custom** - Custom storage possible by implementing the `SessionStorage` trait
 
 
 ## Request Guard Pattern
