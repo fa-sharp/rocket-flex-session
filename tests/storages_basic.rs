@@ -14,7 +14,7 @@ use rocket_flex_session::{
     storage::{
         cookie::CookieStorage,
         redis::{RedisFredStorage, SessionRedis, SessionRedisType, SessionRedisValue},
-        sqlx::{SessionSqlx, SqlxPostgresStorage},
+        sqlx::{SessionSqlx, SqlxPostgresStorage, SqlxSqliteStorage},
     },
     RocketFlexSession, Session, SessionIdentifier,
 };
@@ -22,7 +22,8 @@ use serde::{Deserialize, Serialize};
 use test_case::test_case;
 
 use crate::common::{
-    setup_postgres, setup_redis_fred, teardown_postgres, teardown_redis_fred, POSTGRES_URL,
+    setup_postgres, setup_redis_fred, setup_sqlite, teardown_postgres, teardown_redis_fred,
+    teardown_sqlite, POSTGRES_URL,
 };
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -41,11 +42,20 @@ impl SessionIdentifier for SessionData {
 impl SessionSqlx<sqlx::Postgres> for SessionData {
     type Data = String;
     type Error = SessionError;
-
     fn into_sql(self) -> Result<Self::Data, Self::Error> {
         Ok(self.user_id)
     }
+    fn from_sql(value: Self::Data) -> Result<Self, Self::Error> {
+        Ok(Self { user_id: value })
+    }
+}
 
+impl SessionSqlx<sqlx::Sqlite> for SessionData {
+    type Data = String;
+    type Error = SessionError;
+    fn into_sql(self) -> Result<Self::Data, Self::Error> {
+        Ok(self.user_id)
+    }
     fn from_sql(value: Self::Data) -> Result<Self, Self::Error> {
         Ok(Self { user_id: value })
     }
@@ -122,7 +132,7 @@ async fn create_rocket(
             let cleanup_task = teardown_redis_fred(pool, prefix).boxed();
             (fairing, Some(cleanup_task))
         }
-        "sqlx" => {
+        "sqlx_postgres" => {
             let (pool, db_name) = setup_postgres(POSTGRES_URL).await;
             let storage = SqlxPostgresStorage::builder()
                 .pool(pool.clone())
@@ -132,6 +142,18 @@ async fn create_rocket(
                 .storage(storage)
                 .build();
             let cleanup_task = teardown_postgres(pool, db_name).boxed();
+            (fairing, Some(cleanup_task))
+        }
+        "sqlx_sqlite" => {
+            let pool = setup_sqlite().await;
+            let storage = SqlxSqliteStorage::builder()
+                .pool(pool.clone())
+                .table_name("sessions")
+                .build();
+            let fairing = RocketFlexSession::<SessionData>::builder()
+                .storage(storage)
+                .build();
+            let cleanup_task = teardown_sqlite(pool).boxed();
             (fairing, Some(cleanup_task))
         }
         _ => unimplemented!(),
@@ -147,7 +169,8 @@ async fn create_rocket(
 
 #[test_case("cookie"; "Cookie")]
 #[test_case("redis"; "Redis Fred")]
-#[test_case("sqlx"; "Sqlx Postgres")]
+#[test_case("sqlx_postgres"; "Sqlx Postgres")]
+#[test_case("sqlx_sqlite"; "Sqlx SQLite")]
 #[rocket::async_test]
 async fn test_storages(storage_case: &str) {
     let (rocket, cleanup_task) = create_rocket(storage_case).await;

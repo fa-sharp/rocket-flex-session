@@ -20,10 +20,10 @@ use super::*;
 
 | Name | Type |
 |------|---------|
-| id   | TEXT PRIMARY KEY |
+| id   | TEXT NOT NULL PRIMARY KEY |
 | data | TEXT NOT NULL  |
 | user_id | TEXT |
-| expires | DATETIME |
+| expires | TEXT NOT NULL |
 
 The name of the session index column ("user_id") can be customized when building the storage.
 

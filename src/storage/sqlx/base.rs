@@ -46,12 +46,14 @@ where
                 sqlx::query(&load_and_update_ttl_sql(&self.table_name))
                     .bind(OffsetDateTime::now_utc() + Duration::seconds(new_ttl.into()))
                     .bind(id)
+                    .bind(OffsetDateTime::now_utc())
                     .fetch_optional(&self.pool)
                     .await
             }
             None => {
                 sqlx::query(&load_sql(&self.table_name))
                     .bind(id)
+                    .bind(OffsetDateTime::now_utc())
                     .fetch_optional(&self.pool)
                     .await
             }
@@ -90,19 +92,19 @@ where
     }
 }
 
-/// Load session data. Bind session ID
+/// Load session data. Bind session ID and current time
 fn load_sql(table_name: &str) -> String {
     format!(
         "SELECT {DATA_COLUMN}, {EXPIRES_COLUMN} FROM \"{table_name}\" \
-        WHERE {ID_COLUMN} = $1 AND {EXPIRES_COLUMN} > CURRENT_TIMESTAMP"
+        WHERE {ID_COLUMN} = $1 AND {EXPIRES_COLUMN} > $2"
     )
 }
 
-/// Load session data and update TTL. Bind expiration and session ID
+/// Load session data and update TTL. Bind expiration, session ID, and current time
 fn load_and_update_ttl_sql(table_name: &str) -> String {
     format!(
         "UPDATE \"{table_name}\" SET {EXPIRES_COLUMN} = $1 \
-        WHERE {ID_COLUMN} = $2 AND {EXPIRES_COLUMN} > CURRENT_TIMESTAMP \
+        WHERE {ID_COLUMN} = $2 AND {EXPIRES_COLUMN} > $3 \
         RETURNING {DATA_COLUMN}, {EXPIRES_COLUMN}",
     )
 }
