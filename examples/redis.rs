@@ -2,13 +2,12 @@
 
 use rocket::{fairing::AdHoc, futures::FutureExt, http::Status, routes, serde::json::Json};
 use rocket_flex_session::{
-    storage::redis::{RedisFredStorage, SessionRedis, SessionRedisType, SessionRedisValue},
+    storage::redis::{RedisFormat, RedisFredStorage, RedisValue, SessionRedis},
     RocketFlexSession, Session, SessionIdentifier,
 };
-use serde::{de::Error, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
-// Create a simple session data structure. Implement SessionIdentifier
-// to enable grouping sessions by user ID.
+// Create a simple session data structure.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct BasicSession {
     user_id: u32,
@@ -28,35 +27,32 @@ impl SessionIdentifier for BasicSession {
 // can customize the conversion however you like)
 impl SessionRedis for BasicSession {
     // Storing session as a string in Redis
-    const REDIS_TYPE: SessionRedisType = SessionRedisType::String;
+    const REDIS_TYPE: RedisFormat = RedisFormat::String;
 
     // Conversion error type
     type Error = serde_json::Error;
 
     // Convert to Redis value
-    fn into_redis(self) -> Result<SessionRedisValue, Self::Error> {
+    fn into_redis(self) -> Result<RedisValue, Self::Error> {
         let value = serde_json::to_string(&self)?;
-        Ok(SessionRedisValue::String(value))
+        Ok(RedisValue::String(value))
     }
 
     // Convert from Redis value
-    fn from_redis(value: SessionRedisValue) -> Result<Self, Self::Error> {
-        let SessionRedisValue::String(value) = value else {
-            return Err(serde_json::Error::custom(format!(
-                "Invalid Redis type found when converting: {value:?}"
-            )));
-        };
+    fn from_redis(value: RedisValue) -> Result<Self, Self::Error> {
+        // Can safely assume the value is a string according to the REDIS_TYPE above
+        let value = value.into_string().expect("Should be a string type");
         serde_json::from_str(&value)
     }
 }
 
 #[rocket::launch]
 async fn basic() -> _ {
-    // We'll create an AdHoc fairing to initialize the Redis pool and the session fairing,
+    // We'll create an AdHoc fairing to setup the Redis pool and the session fairing,
     // and another one that handles disconnecting the Redis pool on shutdown. You may want to
-    // create a separate fairing for initializing Redis to keep things organized.
+    // create a separate fairing for Redis to keep things organized.
 
-    let session_fairing = AdHoc::on_ignite("Sessions", |rocket| async {
+    let setup_session = AdHoc::on_ignite("Sessions", |rocket| async {
         use fred::prelude::*;
 
         // Build and initialize the Redis pool
@@ -91,7 +87,7 @@ async fn basic() -> _ {
         rocket.attach(session_fairing).manage(pool)
     });
 
-    let shutdown_fairing = AdHoc::on_shutdown("Shutdown", |rocket| {
+    let shutdown_session = AdHoc::on_shutdown("Shutdown", |rocket| {
         async {
             use fred::prelude::{ClientLike, Pool};
 
@@ -106,8 +102,8 @@ async fn basic() -> _ {
 
     // Attach the fairings and mount the routes
     rocket::build()
-        .attach(session_fairing)
-        .attach(shutdown_fairing)
+        .attach(setup_session)
+        .attach(shutdown_session)
         .mount("/", routes![login, logout, user, logout_everywhere])
 }
 

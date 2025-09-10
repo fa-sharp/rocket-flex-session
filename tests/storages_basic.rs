@@ -13,7 +13,7 @@ use rocket_flex_session::{
     error::SessionError,
     storage::{
         cookie::CookieStorage,
-        redis::{RedisFredStorage, SessionRedis, SessionRedisType, SessionRedisValue},
+        redis::{RedisFormat, RedisFredStorage, SessionRedis, RedisValue},
         sqlx::{SessionSqlx, SqlxPostgresStorage, SqlxSqliteStorage},
     },
     RocketFlexSession, Session, SessionIdentifier,
@@ -62,21 +62,17 @@ impl SessionSqlx<sqlx::Sqlite> for SessionData {
 }
 
 impl SessionRedis for SessionData {
-    const REDIS_TYPE: SessionRedisType = SessionRedisType::Bytes;
+    const REDIS_TYPE: RedisFormat = RedisFormat::Bytes;
     type Error = SessionError;
 
-    fn into_redis(self) -> Result<SessionRedisValue, Self::Error> {
-        Ok(SessionRedisValue::Bytes(self.user_id.into_bytes()))
+    fn into_redis(self) -> Result<RedisValue, Self::Error> {
+        Ok(RedisValue::Bytes(self.user_id.into_bytes()))
     }
 
-    fn from_redis(value: SessionRedisValue) -> Result<Self, Self::Error> {
-        match value {
-            SessionRedisValue::Bytes(bytes) => Ok(Self {
-                user_id: String::from_utf8(bytes)
-                    .map_err(|e| SessionError::Parsing(Box::new(e)))?,
-            }),
-            _ => Err(SessionError::InvalidData),
-        }
+    fn from_redis(value: RedisValue) -> Result<Self, Self::Error> {
+        let bytes = value.into_bytes().expect("should be bytes");
+        let user_id = String::from_utf8(bytes).map_err(|e| SessionError::Parsing(e.into()))?;
+        Ok(Self { user_id })
     }
 }
 

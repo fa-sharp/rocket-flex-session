@@ -1,5 +1,5 @@
 use bon::bon;
-use rocket::{async_trait, http::CookieJar, time::OffsetDateTime};
+use rocket::{async_trait, http::CookieJar};
 use sqlx::{postgres::PgRow, PgPool, Postgres, Row};
 
 use crate::{
@@ -82,11 +82,6 @@ impl SqlxPostgresStorage {
             pool,
         }
     }
-
-    fn ttl_from_row(&self, row: &PgRow) -> sqlx::Result<u32> {
-        let expires: OffsetDateTime = row.try_get(EXPIRES_COLUMN)?;
-        Ok(expires_to_ttl(&expires))
-    }
 }
 
 #[async_trait]
@@ -110,9 +105,9 @@ where
 
         let value = row.try_get(DATA_COLUMN)?;
         let data = T::from_sql(value).map_err(|e| SessionError::Parsing(Box::new(e)))?;
-        let ttl = self.ttl_from_row(&row)?;
+        let expires = row.try_get(EXPIRES_COLUMN)?;
 
-        Ok((data, ttl))
+        Ok((data, expires_to_ttl(&expires)))
     }
 
     async fn save(&self, id: &str, data: T, ttl: u32) -> SessionResult<()> {
@@ -162,8 +157,9 @@ where
                 let id = row.try_get(ID_COLUMN).ok()?;
                 let value = row.try_get(DATA_COLUMN).ok()?;
                 let data = T::from_sql(value).ok()?;
-                let ttl = self.ttl_from_row(&row).ok()?;
-                Some((id, data, ttl))
+                let expires = row.try_get(EXPIRES_COLUMN).ok()?;
+
+                Some((id, data, expires_to_ttl(&expires)))
             })
             .collect();
 

@@ -7,7 +7,7 @@ use rocket_flex_session::{
     error::SessionError,
     storage::{
         memory::MemoryStorageIndexed,
-        redis::{RedisFredStorage, SessionRedis, SessionRedisType, SessionRedisValue},
+        redis::{RedisFormat, RedisFredStorage, SessionRedis, RedisValue},
         sqlx::{SessionSqlx, SqlxPostgresStorage, SqlxSqliteStorage},
         SessionStorageIndexed,
     },
@@ -72,22 +72,20 @@ impl SessionSqlx<sqlx::Sqlite> for TestSession {
 }
 
 impl SessionRedis for TestSession {
-    const REDIS_TYPE: SessionRedisType = SessionRedisType::Map;
+    const REDIS_TYPE: RedisFormat = RedisFormat::Map;
 
     type Error = SessionError;
 
-    fn into_redis(self) -> Result<SessionRedisValue, Self::Error> {
+    fn into_redis(self) -> Result<RedisValue, Self::Error> {
         let map = vec![
             ("user_id".to_owned(), self.user_id),
             ("data".to_owned(), self.data),
         ];
-        Ok(SessionRedisValue::Map(map))
+        Ok(RedisValue::Map(map))
     }
 
-    fn from_redis(value: SessionRedisValue) -> Result<Self, Self::Error> {
-        let SessionRedisValue::Map(map) = value else {
-            return Err(SessionError::InvalidData);
-        };
+    fn from_redis(value: RedisValue) -> Result<Self, Self::Error> {
+        let map = value.into_map().expect("should be map");
         let (mut user_id, mut data) = (None, None);
         for (key, value) in map {
             match key.as_str() {

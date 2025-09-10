@@ -8,7 +8,7 @@ use crate::{
     SessionIdentifier,
 };
 
-use super::{SessionRedis, SessionRedisType, SessionRedisValue};
+use super::{RedisFormat, RedisValue, SessionRedis};
 
 const TWO_WEEKS_TTL: u32 = 60 * 60 * 24 * 7 * 2;
 
@@ -62,15 +62,11 @@ impl RedisFredStorage {
         Ok((session_ids, index_key))
     }
 
-    fn to_typed_value(
-        &self,
-        redis_type: SessionRedisType,
-        value: Value,
-    ) -> SessionResult<SessionRedisValue> {
+    fn to_typed_value(&self, redis_type: RedisFormat, value: Value) -> SessionResult<RedisValue> {
         match redis_type {
-            SessionRedisType::String => value.into_string().map(SessionRedisValue::String),
-            SessionRedisType::Bytes => value.into_owned_bytes().map(SessionRedisValue::Bytes),
-            SessionRedisType::Map => value.convert().ok().map(SessionRedisValue::Map),
+            RedisFormat::String => value.into_string().map(RedisValue::String),
+            RedisFormat::Bytes => value.into_owned_bytes().map(RedisValue::Bytes),
+            RedisFormat::Map => value.convert().ok().map(RedisValue::Map),
         }
         .ok_or(SessionError::InvalidData)
     }
@@ -103,8 +99,8 @@ where
         let key = self.session_key(id);
         let pipeline = self.pool.next().pipeline();
         let _: () = match T::REDIS_TYPE {
-            SessionRedisType::String | SessionRedisType::Bytes => pipeline.get(&key).await?,
-            SessionRedisType::Map => pipeline.hgetall(&key).await?,
+            RedisFormat::String | RedisFormat::Bytes => pipeline.get(&key).await?,
+            RedisFormat::Map => pipeline.hgetall(&key).await?,
         };
         let _: () = pipeline.ttl(&key).await?;
 
@@ -143,17 +139,17 @@ where
             .into_redis()
             .map_err(|e| SessionError::Serialization(Box::new(e)))?;
         let _: () = match value {
-            SessionRedisValue::String(val) => {
+            RedisValue::String(val) => {
                 self.pool
                     .set(&key, val, Some(Expiration::EX(ttl.into())), None, false)
                     .await?
             }
-            SessionRedisValue::Bytes(val) => {
+            RedisValue::Bytes(val) => {
                 self.pool
                     .set(&key, val, Some(Expiration::EX(ttl.into())), None, false)
                     .await?
             }
-            SessionRedisValue::Map(map) => {
+            RedisValue::Map(map) => {
                 let pipeline = self.pool.next().pipeline();
                 let _: () = pipeline.hset(&key, map).await?;
                 let _: () = pipeline.expire(&key, ttl.into(), None).await?;
@@ -210,10 +206,10 @@ where
         for session_id in &session_ids {
             let session_key = self.session_key(&session_id);
             let _: () = match T::REDIS_TYPE {
-                SessionRedisType::String | SessionRedisType::Bytes => {
+                RedisFormat::String | RedisFormat::Bytes => {
                     session_value_pipeline.get(&session_key).await?
                 }
-                SessionRedisType::Map => session_value_pipeline.hgetall(&session_key).await?,
+                RedisFormat::Map => session_value_pipeline.hgetall(&session_key).await?,
             };
             let _: () = session_value_pipeline.ttl(&session_key).await?;
         }
