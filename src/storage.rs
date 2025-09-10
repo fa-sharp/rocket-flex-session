@@ -30,5 +30,5 @@ pub mod cookie;
 #[cfg(any(feature = "redis_fred"))]
 pub mod redis;
 
-#[cfg(any(feature = "sqlx_postgres"))]
+#[cfg(any(feature = "sqlx_postgres", feature = "sqlx_sqlite"))]
 pub mod sqlx;

@@ -1,25 +1,13 @@
-use bon::Builder;
-use rocket::{
-    async_trait,
-    http::CookieJar,
-    time::{Duration, OffsetDateTime},
-    tokio::{
-        self,
-        sync::{oneshot, Mutex},
-        time::interval,
-    },
-};
+use bon::bon;
+use rocket::{async_trait, http::CookieJar, time::OffsetDateTime};
 use sqlx::{postgres::PgRow, PgPool, Postgres, Row};
 
 use crate::{
     error::{SessionError, SessionResult},
-    storage::{sqlx::SessionSqlx, SessionStorage, SessionStorageIndexed},
-    SessionIdentifier,
+    storage::{SessionStorage, SessionStorageIndexed},
 };
 
-const ID_COLUMN: &str = "id";
-const DATA_COLUMN: &str = "data";
-const EXPIRES_COLUMN: &str = "expires";
+use super::*;
 
 /**
 Session store using PostgreSQL via [sqlx](https://docs.rs/crate/sqlx).
@@ -66,31 +54,42 @@ async fn create_storage() -> SqlxPostgresStorage {
 }
 ```
 */
-#[derive(Builder)]
 pub struct SqlxPostgresStorage {
-    /// An initialized Postgres connection pool.
     pool: PgPool,
-    /// The name of the table to use for storing sessions.
-    #[builder(into)]
+    base: SqlxBase<Postgres>,
     table_name: String,
-    /// The name of the column used to index/group sessions (default: `"user_id"`)
-    #[builder(into, default = "user_id")]
     index_column: String,
-    /// Interval to check for and delete expired sessions. If not set,
-    /// expired sessions won't be cleaned up automatically.
-    cleanup_interval: Option<std::time::Duration>,
-    #[builder(skip)]
-    shutdown_tx: Mutex<Option<oneshot::Sender<()>>>,
+    cleanup_task: SqlxCleanupTask,
 }
 
+#[bon]
 impl SqlxPostgresStorage {
+    #[builder]
+    pub fn new(
+        /// An initialized Postgres connection pool.
+        pool: PgPool,
+        /// The name of the table to use for storing sessions.
+        #[builder(into)]
+        table_name: String,
+        /// The name of the column used to index/group sessions (default: `"user_id"`)
+        #[builder(into, default = "user_id")]
+        index_column: String,
+        /// Interval to check for and delete expired sessions. If not set,
+        /// expired sessions will not be cleaned up automatically.
+        cleanup_interval: Option<std::time::Duration>,
+    ) -> Self {
+        Self {
+            base: SqlxBase::new(pool.clone(), table_name.clone(), index_column.clone()),
+            cleanup_task: SqlxCleanupTask::new(cleanup_interval, &table_name),
+            pool,
+            table_name,
+            index_column,
+        }
+    }
+
     fn ttl_from_row(&self, row: &PgRow) -> sqlx::Result<u32> {
         let expires: OffsetDateTime = row.try_get(EXPIRES_COLUMN)?;
-        let ttl = (expires - OffsetDateTime::now_utc())
-            .whole_seconds()
-            .try_into()
-            .unwrap_or(0);
-        Ok(ttl)
+        Ok(expires_to_ttl(expires))
     }
 }
 
@@ -110,123 +109,38 @@ where
         ttl: Option<u32>,
         _cookie_jar: &CookieJar,
     ) -> SessionResult<(T, u32)> {
-        let row = match ttl {
-            Some(new_ttl) => {
-                let sql = format!(
-                    "UPDATE \"{}\" SET {EXPIRES_COLUMN} = $1 \
-                    WHERE {ID_COLUMN} = $2 AND {EXPIRES_COLUMN} > CURRENT_TIMESTAMP \
-                    RETURNING {DATA_COLUMN}, {EXPIRES_COLUMN}",
-                    &self.table_name,
-                );
-                sqlx::query(&sql)
-                    .bind(OffsetDateTime::now_utc() + Duration::seconds(new_ttl.into()))
-                    .bind(id)
-                    .fetch_optional(&self.pool)
-                    .await?
-            }
-            None => {
-                let sql = format!(
-                    "SELECT {DATA_COLUMN}, {EXPIRES_COLUMN} FROM \"{}\" \
-                    WHERE {ID_COLUMN} = $1 AND {EXPIRES_COLUMN} > CURRENT_TIMESTAMP",
-                    &self.table_name,
-                );
-                sqlx::query(&sql)
-                    .bind(id)
-                    .fetch_optional(&self.pool)
-                    .await?
-            }
-        };
+        let row = self
+            .base
+            .load(id.into(), ttl)
+            .await?
+            .ok_or(SessionError::NotFound)?;
 
-        let (value, ttl) = match row {
-            Some(row) => {
-                let data = row.try_get(DATA_COLUMN)?;
-                let ttl = self.ttl_from_row(&row)?;
-                (data, ttl)
-            }
-            None => return Err(SessionError::NotFound),
-        };
+        let value = row.try_get(DATA_COLUMN)?;
         let data = T::from_sql(value).map_err(|e| SessionError::Parsing(Box::new(e)))?;
+        let ttl = self.ttl_from_row(&row)?;
+
         Ok((data, ttl))
     }
 
     async fn save(&self, id: &str, data: T, ttl: u32) -> SessionResult<()> {
-        let sql = format!(
-            "INSERT INTO \"{}\" ({ID_COLUMN}, {}, {DATA_COLUMN}, {EXPIRES_COLUMN}) \
-            VALUES ($1, $2, $3, $4) \
-            ON CONFLICT ({ID_COLUMN}) DO UPDATE SET \
-                {DATA_COLUMN} = EXCLUDED.{DATA_COLUMN}, \
-                {EXPIRES_COLUMN} = EXCLUDED.{EXPIRES_COLUMN}",
-            self.table_name, self.index_column
-        );
         let identifier = data.identifier();
-        sqlx::query(&sql)
-            .bind(id)
-            .bind(identifier)
-            .bind(
-                data.into_sql()
-                    .map_err(|e| SessionError::Serialization(Box::new(e)))?,
-            )
-            .bind(OffsetDateTime::now_utc() + Duration::seconds(ttl.into()))
-            .execute(&self.pool)
-            .await?;
-
-        Ok(())
+        let value = data
+            .into_sql()
+            .map_err(|e| SessionError::Serialization(Box::new(e)))?;
+        Ok(self.base.save(id.into(), value, identifier, ttl).await?)
     }
 
     async fn delete(&self, id: &str, _data: T) -> SessionResult<()> {
-        let sql = format!("DELETE FROM {} WHERE {ID_COLUMN} = $1", self.table_name);
-        sqlx::query(&sql).bind(id).execute(&self.pool).await?;
-
-        Ok(())
+        Ok(self.base.delete(id.into()).await?)
     }
 
     async fn setup(&self) -> SessionResult<()> {
-        let Some(cleanup_interval) = self.cleanup_interval else {
-            return Ok(());
-        };
-        let (tx, mut rx) = oneshot::channel();
-        let pool = self.pool.clone();
-        let table_name = self.table_name.clone();
-        tokio::spawn(async move {
-            rocket::info!("Starting session cleanup monitor");
-            let mut interval = interval(cleanup_interval);
-            loop {
-                tokio::select! {
-                    _ = interval.tick() => {
-                        rocket::debug!("Cleaning up expired sessions");
-                        if let Err(e) = cleanup_expired_sessions(&table_name, &pool).await {
-                            rocket::error!("Error deleting expired sessions: {e}");
-                        }
-                    }
-                    _ = &mut rx => {
-                        rocket::info!("Session cleanup monitor shutdown");
-                    }
-                }
-            }
-        });
-        self.shutdown_tx.lock().await.replace(tx);
-
-        Ok(())
+        self.cleanup_task.setup(&self.pool).await
     }
 
     async fn shutdown(&self) -> SessionResult<()> {
-        if let Some(tx) = self.shutdown_tx.lock().await.take() {
-            tx.send(()).map_err(|_| {
-                SessionError::SetupTeardown("Failed to send shutdown signal".to_string())
-            })?;
-        }
-        Ok(())
+        self.cleanup_task.shutdown().await
     }
-}
-
-async fn cleanup_expired_sessions(table_name: &str, pool: &PgPool) -> Result<u64, sqlx::Error> {
-    rocket::debug!("Cleaning up expired sessions");
-    let sql = format!("DELETE FROM \"{table_name}\" WHERE {EXPIRES_COLUMN} < $1");
-    let rows = sqlx::query(&sql)
-        .bind(OffsetDateTime::now_utc())
-        .execute(pool)
-        .await?;
-    Ok(rows.rows_affected())
 }
 
 #[async_trait]

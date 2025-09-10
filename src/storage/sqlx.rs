@@ -1,9 +1,17 @@
 //! Session storage via sqlx
 
+mod base;
+use base::*;
+
 #[cfg(feature = "sqlx_postgres")]
 mod postgres;
 #[cfg(feature = "sqlx_postgres")]
 pub use postgres::SqlxPostgresStorage;
+
+#[cfg(feature = "sqlx_sqlite")]
+mod sqlite;
+#[cfg(feature = "sqlx_sqlite")]
+pub use sqlite::SqlxSqliteStorage;
 
 use crate::SessionIdentifier;
 

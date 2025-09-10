@@ -23,7 +23,8 @@ exclude = [".github/", ".zed/", ".config/"]
 cookie = ["dep:time"]
 redis_fred = ["dep:fred"]
 rocket_okapi = ["dep:rocket_okapi"]
-sqlx_postgres = ["dep:sqlx"]
+sqlx_postgres = ["dep:sqlx", "sqlx/postgres"]
+sqlx_sqlite = ["dep:sqlx", "sqlx/sqlite"]
 
 [package.metadata.docs.rs]
 all-features = true
@@ -42,7 +43,6 @@ rocket = { version = "~0.5.1", features = ["secrets"] }
 rocket_okapi = { version = "0.9", optional = true }
 sqlx = { version = "0.8", optional = true, default-features = false, features = [
     "runtime-tokio",
-    "postgres",
     "time",
 ] }
 thiserror = "2.0"
