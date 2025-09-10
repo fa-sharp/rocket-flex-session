@@ -64,9 +64,9 @@ where
     T: SessionSqlx<Sqlite>,
     <T as SessionIdentifier>::Id: for<'q> sqlx::Encode<'q, Sqlite> + sqlx::Type<Sqlite>,
 {
-    // fn as_indexed_storage(&self) -> Option<&dyn SessionStorageIndexed<T>> {
-    //     Some(self)
-    // }
+    fn as_indexed_storage(&self) -> Option<&dyn SessionStorageIndexed<T>> {
+        Some(self)
+    }
 
     async fn load(
         &self,
