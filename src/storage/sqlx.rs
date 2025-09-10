@@ -64,7 +64,7 @@ where
     Database: sqlx::Database,
 {
     /// The error that can occur when converting to/from the SQL value.
-    type Error: std::error::Error + Send + Sync + 'static;
+    type Error: std::error::Error + Send + Sync;
 
     /// The data type passed to sqlx to be stored in the SQL database. Must be a type supported by sqlx.
     type Data: for<'q> sqlx::Encode<'q, Database>
