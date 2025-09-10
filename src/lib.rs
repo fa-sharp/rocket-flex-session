@@ -203,10 +203,9 @@ This crate supports multiple storage backends with different capabilities:
 | [`storage::memory::MemoryStorage`] | Built-in | ❌ | Development, testing |
 | [`storage::memory::MemoryStorageIndexed`] | Built-in | ✅ | Development with indexing features |
 | [`storage::cookie::CookieStorage`] | `cookie` | ❌ | Client-side storage, stateless servers |
-| [`storage::redis::RedisFredStorage`] | `redis_fred` | ❌ | Production, distributed systems |
-| [`storage::redis::RedisFredStorageIndexed`] | `redis_fred` | ✅ | Production, distributed systems |
+| [`storage::redis::RedisFredStorage`] | `redis_fred` | ✅ | Production, distributed systems |
 | [`storage::sqlx::SqlxPostgresStorage`] | `sqlx_postgres` | ✅ | Production, existing database |
-
+| [`storage::sqlx::SqlxSqliteStorage`] | `sqlx_sqlite` | ✅ | Development and small-scale deployments |
 
 ## Custom Storage
 
@@ -295,6 +294,7 @@ These features can be enabled as shown
 | `cookie` | A cookie-based session store. Data is serialized using serde_json and then encrypted into the value of a cookie. |
 | `redis_fred`  | A session store for Redis (and Redis-compatible databases), using the [fred.rs](https://docs.rs/crate/fred) crate. |
 | `sqlx_postgres`  | A session store using PostgreSQL via the [sqlx](https://docs.rs/crate/sqlx) crate. |
+| `sqlx_sqlite`  | A session store using SQLite via the [sqlx](https://docs.rs/crate/sqlx) crate. |
 | `rocket_okapi`  | Enables support for the [rocket_okapi](https://docs.rs/crate/rocket_okapi) crate if needed. |
 */
 

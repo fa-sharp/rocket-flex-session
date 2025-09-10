@@ -17,14 +17,14 @@ const TWO_WEEKS_TTL: u32 = 60 * 60 * 24 * 7 * 2;
 /// # Requirements
 /// - You must pass in an initialized fred.rs connection pool.
 /// - Your session data type must implement [`SessionRedis`] to configure how to convert & store session data.
-/// - Your session data type must implement [`SessionIdentifier`]. The
-/// SessionIdentifier's [Id](`SessionIdentifier::Id`) type must be a string.
+/// - Your session data type must implement [`SessionIdentifier`]. The [Id](`SessionIdentifier::Id`) type must be a string.
 ///
-/// # Session keys and data
+/// # Storage
+/// ## Session keys and data
 /// Sessions are stored using either Redis strings or hashes, depending on your [`SessionRedis`]
 /// implementation. The key will be `<prefix>:<id>` (e.g.: `sess:abcdef...`)
 ///
-/// # Indexing sessions
+/// ## Indexing sessions
 /// Sessions are indexed with the identifier retrieved from your [`SessionIdentifier`] implementation.
 /// Session IDs are grouped together using Redis sets, with a key format of:
 ///

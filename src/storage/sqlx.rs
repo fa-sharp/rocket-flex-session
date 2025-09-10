@@ -41,7 +41,7 @@ impl SessionIdentifier for SessionData {
 
 impl SessionSqlx<sqlx::Postgres> for SessionData {
     type Error = SessionError; // or a custom error
-    type Data = String; // the data type to be stored
+    type Data = String; // the data type passed to sqlx
 
     fn into_sql(self) -> Result<Self::Data, Self::Error> {
         Ok(format!("{}:{}", self.user_id, self.data))
@@ -66,7 +66,7 @@ where
     /// The error that can occur when converting to/from the SQL value.
     type Error: std::error::Error + Send + Sync + 'static;
 
-    /// The data type that can be stored in the SQL database. Must be a type supported by sqlx.
+    /// The data type passed to sqlx to be stored in the SQL database. Must be a type supported by sqlx.
     type Data: for<'q> sqlx::Encode<'q, Database>
         + for<'q> sqlx::Decode<'q, Database>
         + sqlx::Type<Database>
